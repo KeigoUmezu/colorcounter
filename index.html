@@ -6,10 +6,10 @@
     <meta name="theme-color" content="#0f172a">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>Color & ArUco Counter</title>
+    <title>Color & 4x4 ArUco Counter</title>
     
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/gh/jcmellado/js-aruco/src/cv.js"></script>
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/gh/jcmellado/js-aruco/src/aruco.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/gh/jcmellado/js-aruco@master/src/cv.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/gh/jcmellado/js-aruco@master/src/aruco.js"></script>
 
     <style>
         :root {
@@ -168,7 +168,7 @@
 <body>
 
 <div id="start-overlay">
-    <div class="logo" style="font-size: 3.5rem; margin-bottom: 2rem;">COLOR & ARUCO</div>
+    <div class="logo" style="font-size: 3rem; margin-bottom: 2rem;">COLOR & 4x4 ARUCO</div>
     <button class="btn btn-main" onclick="begin()" style="width: auto; padding: 20px 80px; font-size: 1.5rem;">INITIALIZE SYSTEM</button>
 </div>
 
@@ -289,17 +289,20 @@
     let pickingColorId = null;
     let currentFacingMode = "user";
     let wakeLock = null;
+    
+    // カスタムArUcoDetectorと学習モード
     let arucoDetector = null;
+    let learningArucoLane = null;
 
     let roi = { x: 25, y: 25, w: 50, h: 50 };
 
     const configs = [
-        { id:'yellow', name:'YELLOW', hex:'#facc15', active:true,  detectMode:'color', thresh:100, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 57, hueTol: 20, arucoId: 0 },
-        { id:'red',    name:'RED',    hex:'#ef4444', active:true,  detectMode:'color', thresh:100, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 0, hueTol: 15, arucoId: 1 },
-        { id:'blue',   name:'BLUE',   hex:'#3b82f6', active:true,  detectMode:'color', thresh:100, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 222, hueTol: 30, arucoId: 2 },
-        { id:'pink',   name:'PINK',   hex:'#ec4899', active:false, detectMode:'color', thresh:100, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 325, hueTol: 25, arucoId: 3 },
-        { id:'purple', name:'PURPLE', hex:'#a855f7', active:false, detectMode:'color', thresh:100, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 280, hueTol: 20, arucoId: 4 },
-        { id:'black',  name:'BLACK',  hex:'#475569', active:false, detectMode:'color', thresh:300, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, special: 'black', arucoId: 5 }
+        { id:'yellow', name:'YELLOW', hex:'#facc15', active:true,  detectMode:'color', thresh:100, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 57, hueTol: 20, arucoId: '' },
+        { id:'red',    name:'RED',    hex:'#ef4444', active:true,  detectMode:'color', thresh:100, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 0, hueTol: 15, arucoId: '' },
+        { id:'blue',   name:'BLUE',   hex:'#3b82f6', active:true,  detectMode:'color', thresh:100, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 222, hueTol: 30, arucoId: '' },
+        { id:'pink',   name:'PINK',   hex:'#ec4899', active:false, detectMode:'color', thresh:100, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 325, hueTol: 25, arucoId: '' },
+        { id:'purple', name:'PURPLE', hex:'#a855f7', active:false, detectMode:'color', thresh:100, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 280, hueTol: 20, arucoId: '' },
+        { id:'black',  name:'BLACK',  hex:'#475569', active:false, detectMode:'color', thresh:300, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, special: 'black', arucoId: '' }
     ];
 
     async function requestWakeLock() {
@@ -314,6 +317,7 @@
     async function initCamera() {
         if (video.srcObject) video.srcObject.getTracks().forEach(track => track.stop());
         try {
+            // 4x4マーカーを高精度で読むために解像度を640x480に設定
             const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacingMode, width: { ideal: 640 }, height: { ideal: 480 } } });
             video.srcObject = stream;
             await video.play();
@@ -359,6 +363,20 @@
         const btn = document.getElementById(`pick-btn-${id}`);
         btn.style.background = "var(--warning)";
         detectMsg.innerText = "TAP CAMERA TO PICK COLOR";
+    }
+
+    function learnAruco(id) {
+        if(learningArucoLane === id) {
+            learningArucoLane = null;
+            document.getElementById(`learn-btn-${id}`).style.background = "#6366f1";
+            detectMsg.innerText = isRacing ? "GO!!" : "SYSTEM READY";
+            return;
+        }
+        if(learningArucoLane) document.getElementById(`learn-btn-${learningArucoLane}`).style.background = "#6366f1";
+        
+        learningArucoLane = id;
+        document.getElementById(`learn-btn-${id}`).style.background = "var(--warning)";
+        detectMsg.innerText = "SHOW 4x4 ARUCO TO CAMERA";
     }
 
     function toggleLogView(view) {
@@ -486,7 +504,7 @@
     }
 
     function init() {
-        const saved = JSON.parse(localStorage.getItem('cc_eng_v4') || '[]');
+        const saved = JSON.parse(localStorage.getItem('cc_eng_v6') || '[]');
         const savedRoi = JSON.parse(localStorage.getItem('cc_roi_v2'));
         if (savedRoi) {
             roi = savedRoi;
@@ -543,12 +561,16 @@
                 <div class="input-group">Mode:
                     <select id="dm-${c.id}" onchange="sync()">
                         <option value="color" ${c.detectMode === 'color' ? 'selected' : ''}>Color</option>
-                        <option value="aruco" ${c.detectMode === 'aruco' ? 'selected' : ''}>ArUco</option>
+                        <option value="aruco" ${c.detectMode === 'aruco' ? 'selected' : ''}>4x4 ArUco</option>
                     </select>
                 </div>
                 
-                <div id="wrap-aruco-${c.id}">
-                    <div class="input-group">ArUco ID:<input type="number" id="aruco-${c.id}" value="${c.arucoId}" oninput="sync()"></div>
+                <div id="wrap-aruco-${c.id}" style="display:none; padding:6px; background:rgba(0,0,0,0.4); border-radius:6px; margin-top:4px;">
+                    <div style="font-size:0.65rem; color:var(--text-muted); margin-bottom:4px; line-height:1.2;">1. Click LEARN<br>2. Show 4x4 marker to camera</div>
+                    <div style="display:flex; align-items:center; justify-content:space-between;">
+                        <span style="font-size:0.75rem;">ID: <span id="aruco-val-${c.id}" style="color:var(--accent); font-weight:bold;">${c.arucoId !== '' ? c.arucoId : 'NONE'}</span></span>
+                        <button class="btn" style="background:#6366f1; color:white; font-size:0.65rem; padding:4px 8px;" onclick="learnAruco('${c.id}')" id="learn-btn-${c.id}">LEARN</button>
+                    </div>
                 </div>
 
                 <div id="wrap-color-${c.id}">
@@ -561,7 +583,7 @@
             setContainer.appendChild(sc);
         });
 
-        const globalSaved = JSON.parse(localStorage.getItem('cc_global_settings_v4'));
+        const globalSaved = JSON.parse(localStorage.getItem('cc_global_settings_v6'));
         if (globalSaved) {
             modeSelect.value = globalSaved.mode || 'normal';
             document.getElementById('time-limit-val').value = globalSaved.timeLimit || 60;
@@ -590,7 +612,6 @@
             c.name = document.getElementById(`n-${c.id}`).value;
             c.target = parseInt(document.getElementById(`t-${c.id}`).value) || 1;
             c.detectMode = document.getElementById(`dm-${c.id}`).value;
-            c.arucoId = parseInt(document.getElementById(`aruco-${c.id}`).value);
             c.thresh = parseInt(document.getElementById(`r-${c.id}`).value);
             
             if (c.special !== 'black') {
@@ -599,7 +620,6 @@
                 document.getElementById(`hval-${c.id}`).innerText = c.hueCenter;
             }
 
-            // Toggles UI blocks per lane based on mode
             document.getElementById(`wrap-aruco-${c.id}`).style.display = c.detectMode === 'aruco' ? 'block' : 'none';
             document.getElementById(`wrap-color-${c.id}`).style.display = c.detectMode === 'color' ? 'block' : 'none';
 
@@ -629,8 +649,8 @@
         unifiedMeter.classList.toggle('goal-flash', mode === 'normal' && totalCurrent >= totalTarget && totalTarget > 0);
         updateRankingUI();
 
-        localStorage.setItem('cc_eng_v4', JSON.stringify(configs));
-        localStorage.setItem('cc_global_settings_v4', JSON.stringify({
+        localStorage.setItem('cc_eng_v6', JSON.stringify(configs));
+        localStorage.setItem('cc_global_settings_v6', JSON.stringify({
             mode: modeSelect.value, timeLimit: document.getElementById('time-limit-val').value,
             downtime: downtimeInput.value, isShared: viewToggle.checked, soundMode: soundModeSelect.value
         }));
@@ -699,7 +719,7 @@
         if(!confirm("Reset all race data?")) return;
         if (cdInterval) { clearInterval(cdInterval); cdInterval = null; }
         configs.forEach(c => { c.current = 0; c.isHeld = false; c.lastActionTime = 0; c.finished = false; });
-        ranking = []; lapHistory = []; elapsed = 0; isRacing = false; pickingColorId = null; 
+        ranking = []; lapHistory = []; elapsed = 0; isRacing = false; pickingColorId = null; learningArucoLane = null;
         updateTimerInitialDisplay(); 
         if(timerId) { clearInterval(timerId); timerId = null; }
         tCtrl.innerText = "START TIMER"; tCtrl.disabled = false; sync(); updateLogUI();
@@ -709,52 +729,150 @@
     async function begin() {
         if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         document.getElementById("start-overlay").style.display = "none";
-        if (typeof AR !== 'undefined') arucoDetector = new AR.Detector();
-        else console.warn("js-aruco library could not be loaded.");
+        
+        // --- 4x4 ArUco OVERRIDE JS-ARUCO ---
+        // js-arucoの認識エンジンを4x4（6x6グリッド）専用に書き換えます
+        if (typeof AR !== 'undefined') {
+            AR.Detector.prototype.detect = function(image){
+                CV.grayscale(image, this.grey);
+                CV.adaptiveThreshold(this.grey, this.thres, 2, 7);
+                this.contours = CV.findContours(this.thres, this.binary);
+                this.candidates = this.findCandidates(this.contours, image.width * 0.20, 0.05, 10);
+                this.candidates = this.clockwiseCorners(this.candidates);
+                this.candidates = this.notTooNear(this.candidates, 10);
+                return this.findMarkers(this.grey, this.candidates, 48); // 48px(8px/cell) = 6x6 grid
+            };
+
+            AR.Detector.prototype.findMarkers = function(imageSrc, candidates, warpSize){
+                var markers = [];
+                for (var i = 0; i < candidates.length; ++i){
+                    var marker = this.getMarker4x4(imageSrc, candidates[i], warpSize);
+                    if (marker){ markers.push(marker); }
+                }
+                return markers;
+            };
+
+            AR.Detector.prototype.getMarker4x4 = function(imageSrc, candidate, warpSize){
+                var homography = CV.findHomography(candidate, [{x:0,y:0}, {x:warpSize,y:0}, {x:warpSize,y:warpSize}, {x:0,y:warpSize}]);
+                var warped = CV.warp(imageSrc, homography, warpSize);
+
+                var cellSize = warpSize / 6;
+                var bits = [];
+                for (var y = 0; y < 6; ++y){
+                    bits[y] = [];
+                    for (var x = 0; x < 6; ++x){
+                        var sum = 0;
+                        for (var dy = 2; dy < 6; ++dy){
+                            for (var dx = 2; dx < 6; ++dx){
+                                sum += warped.data[(y * cellSize + dy) * warpSize + (x * cellSize + dx)];
+                            }
+                        }
+                        bits[y][x] = (sum / 16) > 127 ? 1 : 0; // Black=0, White=1
+                    }
+                }
+
+                // 1. 周辺1pxの枠が黒(0)か確認
+                for (var i = 0; i < 6; ++i){
+                    if (bits[0][i] !== 0 || bits[5][i] !== 0 || bits[i][0] !== 0 || bits[i][5] !== 0){ return null; }
+                }
+
+                // 2. 内部4x4のデータを抽出
+                var inner = [];
+                for (var y = 0; y < 4; ++y){
+                    inner[y] = [];
+                    for (var x = 0; x < 4; ++x){ inner[y][x] = bits[y+1][x+1]; }
+                }
+
+                // 3. 全4方向の回転の中から最小の16bit数値を固有IDとして採用する
+                var minId = 0xFFFF;
+                var bestRotation = 0;
+                var currentInner = inner;
+
+                for (var r = 0; r < 4; ++r) {
+                    var currentId = 0;
+                    for (var y = 0; y < 4; ++y) {
+                        for (var x = 0; x < 4; ++x) { currentId = (currentId << 1) | currentInner[y][x]; }
+                    }
+                    if (currentId < minId) { minId = currentId; bestRotation = r; }
+                    
+                    var rotated = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
+                    for (var y = 0; y < 4; ++y) {
+                        for (var x = 0; x < 4; ++x) { rotated[x][3-y] = currentInner[y][x]; }
+                    }
+                    currentInner = rotated;
+                }
+
+                var corners = [];
+                for (var i = 0; i < 4; ++i) { corners.push(candidate[(i + 4 - bestRotation) % 4]); }
+
+                return { id: minId, corners: corners };
+            };
+
+            arucoDetector = new AR.Detector();
+        } else {
+            console.error("js-aruco not loaded.");
+        }
+
         await requestWakeLock(); await initCamera(); loop(); 
     }
 
     function loop() {
         if (video.readyState === video.HAVE_ENOUGH_DATA) {
-            canvas.width = 320; canvas.height = 240;
-            ctx.drawImage(video, 0, 0, 320, 240);
+            canvas.width = 640; canvas.height = 480;
+            ctx.drawImage(video, 0, 0, 640, 480);
 
-            // 1. ArUco Detection & Drawing
+            // 1. 4x4 ArUco Detection & Drawing
             let detectedArucoIds = [];
             if (arucoDetector) {
                 try {
-                    const fullImageData = ctx.getImageData(0, 0, 320, 240);
+                    const fullImageData = ctx.getImageData(0, 0, 640, 480);
                     const markers = arucoDetector.detect(fullImageData);
                     
                     markers.forEach(marker => {
-                        // アクティブかつArUcoモードで設定されているIDかチェック
+                        // 【LEARNモード】学習待機中なら、最初に見えたマーカーを登録
+                        if (learningArucoLane) {
+                            const c = configs.find(cfg => cfg.id === learningArucoLane);
+                            if (c) {
+                                c.arucoId = marker.id;
+                                document.getElementById(`aruco-val-${c.id}`).innerText = marker.id;
+                                document.getElementById(`learn-btn-${c.id}`).style.background = "#6366f1";
+                                learningArucoLane = null;
+                                sync();
+                                detectMsg.innerText = "ARUCO ID SAVED!";
+                                playFeedback('start');
+                                setTimeout(() => { if(!learningArucoLane && !pickingColorId && !isRacing) detectMsg.innerText = "SYSTEM READY"; }, 1500);
+                            }
+                        }
+
+                        // 通常の描画処理
                         const matchedConfig = configs.find(c => c.active && c.detectMode === 'aruco' && c.arucoId === marker.id);
+                        const drawColor = matchedConfig ? matchedConfig.hex : 'rgba(255,255,255,0.7)';
+                        const textStr = matchedConfig ? `P${matchedConfig.current} (ID:${marker.id})` : `ID:${marker.id}`;
+
+                        ctx.lineWidth = matchedConfig ? 4 : 2;
+                        ctx.strokeStyle = drawColor;
+                        ctx.beginPath();
+                        ctx.moveTo(marker.corners[0].x, marker.corners[0].y);
+                        ctx.lineTo(marker.corners[1].x, marker.corners[1].y);
+                        ctx.lineTo(marker.corners[2].x, marker.corners[2].y);
+                        ctx.lineTo(marker.corners[3].x, marker.corners[3].y);
+                        ctx.closePath();
+                        ctx.stroke();
+
+                        ctx.fillStyle = drawColor;
+                        ctx.font = matchedConfig ? 'bold 24px sans-serif' : '14px sans-serif';
+                        ctx.fillText(textStr, marker.corners[0].x, marker.corners[0].y - 8);
+
                         if (matchedConfig) {
                             detectedArucoIds.push(marker.id);
-                            
-                            // 枠線の描画
-                            ctx.lineWidth = 3;
-                            ctx.strokeStyle = matchedConfig.hex;
-                            ctx.beginPath();
-                            ctx.moveTo(marker.corners[0].x, marker.corners[0].y);
-                            ctx.lineTo(marker.corners[1].x, marker.corners[1].y);
-                            ctx.lineTo(marker.corners[2].x, marker.corners[2].y);
-                            ctx.lineTo(marker.corners[3].x, marker.corners[3].y);
-                            ctx.closePath();
-                            ctx.stroke();
-
-                            // IDの描画
-                            ctx.fillStyle = matchedConfig.hex;
-                            ctx.font = 'bold 16px sans-serif';
-                            ctx.fillText('ID: ' + marker.id, marker.corners[0].x, marker.corners[0].y - 5);
                         }
                     });
-                } catch(e) {}
+                } catch(e) { console.error(e); }
             }
 
             // 2. ROI (Color Detection Area)
-            const rx = Math.floor(320 * (roi.x / 100)); const ry = Math.floor(240 * (roi.y / 100));
-            const rw = Math.floor(320 * (roi.w / 100)); const rh = Math.floor(240 * (roi.h / 100));
+            const rx = Math.floor(640 * (roi.x / 100)); const ry = Math.floor(480 * (roi.y / 100));
+            const rw = Math.floor(640 * (roi.w / 100)); const rh = Math.floor(480 * (roi.h / 100));
             
             ctx.strokeStyle = 'rgba(34, 197, 94, 0.8)';
             ctx.lineWidth = 2; ctx.setLineDash([5, 5]);
@@ -787,7 +905,7 @@
             if (isRequestingCalibration) {
                 configs.forEach(c => calibBaselines[c.id] = pc[c.id]);
                 isRequestingCalibration = false; detectMsg.innerText = "CALIBRATION DONE";
-                setTimeout(() => { if(!isRacing && !pickingColorId) detectMsg.innerText = "SYSTEM READY"; }, 1000);
+                setTimeout(() => { if(!isRacing && !pickingColorId && !learningArucoLane) detectMsg.innerText = "SYSTEM READY"; }, 1000);
             }
 
             configs.forEach(c => pc[c.id] = Math.max(0, pc[c.id] - calibBaselines[c.id]));
@@ -798,22 +916,21 @@
             configs.forEach(c => {
                 if (!c.active) { document.getElementById(`act-${c.id}`).style.width = "0%"; return; }
 
-                // UI Activity Update (Color Mode Only)
                 const actFill = document.getElementById(`act-${c.id}`);
                 if (c.detectMode === 'color') {
                     const actPercent = Math.min(100, (pc[c.id] / c.thresh) * 100);
                     actFill.style.width = actPercent + "%";
                     actFill.style.backgroundColor = actPercent >= 100 ? "white" : c.hex;
                 } else {
-                    const isArucoActive = detectedArucoIds.includes(c.arucoId);
+                    const isArucoActive = detectedArucoIds.includes(c.arucoId) && c.arucoId !== '';
                     actFill.style.width = isArucoActive ? "100%" : "0%";
-                    actFill.style.backgroundColor = "white";
+                    actFill.style.backgroundColor = isArucoActive ? "white" : c.hex;
                 }
 
                 if (c.finished) return;
 
                 const isSeenColor = c.detectMode === 'color' && pc[c.id] >= c.thresh;
-                const isSeenAruco = c.detectMode === 'aruco' && detectedArucoIds.includes(c.arucoId);
+                const isSeenAruco = c.detectMode === 'aruco' && detectedArucoIds.includes(c.arucoId) && c.arucoId !== '';
                 const isSeen = isSeenColor || isSeenAruco;
 
                 const lbl = document.getElementById(`label-${c.id}`);
@@ -865,7 +982,7 @@
 
         document.getElementById(`pick-btn-${pickingColorId}`).style.background = "#475569";
         pickingColorId = null; detectMsg.innerText = "COLOR PICKED!";
-        setTimeout(() => { if (!pickingColorId) detectMsg.innerText = isRacing ? "GO!!" : "SYSTEM READY"; }, 1500);
+        setTimeout(() => { if (!pickingColorId && !learningArucoLane) detectMsg.innerText = isRacing ? "GO!!" : "SYSTEM READY"; }, 1500);
     });
 
     init();

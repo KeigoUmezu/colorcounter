@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0a0f1e">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>ColorCounter</title>
+    <style>
+        :root {
+            --bg: #0a0f1e;
+            --card: rgba(20, 30, 50, 0.7);
+            --accent: #00f2fe;
+            --success: #00e676;
+            --warning: #facc15;
+            --border: rgba(0, 242, 254, 0.3);
+            --gold: #ffd700;
+        }
+
+        body {
+            margin: 0; background: var(--bg); color: white;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            overflow: hidden; height: 100vh; display: flex; flex-direction: column;
+            
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+        }
+        
+        input, select {
+            -webkit-user-select: auto;
+            -moz-user-select: auto;
+            -ms-user-select: auto;
+            user-select: auto;
+        }
+
+        header {
+            padding: 8px 20px; background: rgba(0,0,0,0.6);
+            display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid var(--border); backdrop-filter: blur(10px);
+            flex-wrap: wrap; gap: 10px;
+        }
+
+        .logo { font-weight: 900; letter-spacing: 4px; color: var(--accent); font-size: 1.1rem; }
+
+        .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .tool-item { display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.3); padding: 4px 10px; border-radius: 20px; border: 1px solid var(--border); font-size: 0.75rem; }
+        
+        .switch { position: relative; display: inline-block; width: 34px; height: 18px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; inset: 0; background-color: #334155; transition: .4s; border-radius: 18px; }
+        .slider:before { position: absolute; content: ""; height: 12px; width: 12px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: var(--accent); }
+        input:checked + .slider:before { transform: translateX(16px); }
+
+        .container {
+            display: grid; grid-template-columns: 260px 1fr 220px; grid-template-rows: 1fr auto;
+            gap: 15px; padding: 15px; flex: 1; min-height: 0;
+        }
+
+        .sidebar { display: flex; flex-direction: column; gap: 15px; }
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 15px; backdrop-filter: blur(10px); }
+
+        #camera-box {
+            position: relative; width: 100%; aspect-ratio: 4/3; background: #000; border-radius: 8px; overflow: hidden; border: 2px solid var(--accent); cursor: crosshair;
+        }
+        
+        canvas { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+        
+        .scan-guide {
+            position: absolute; top: 50%; left: 50%; width: 50%; height: 50%;
+            border: 2px dashed var(--accent); transform: translate(-50%, -50%);
+            box-shadow: 0 0 0 1000px rgba(0,0,0,0.6); pointer-events: none;
+        }
+
+        .camera-switch-btn {
+            position: absolute; bottom: 10px; right: 10px;
+            background: rgba(0,0,0,0.5); color: white; border: 1px solid var(--border);
+            border-radius: 50%; width: 35px; height: 35px; font-size: 1.2rem;
+            cursor: pointer; z-index: 10; display: flex; align-items: center; justify-content: center;
+            transition: 0.2s; backdrop-filter: blur(4px);
+        }
+        .camera-switch-btn:hover { background: var(--accent); color: black; }
+
+        #timer-display { font-family: monospace; font-size: 3rem; font-weight: bold; text-align: center; margin-bottom: 10px; }
+
+        .main-display { display: flex; flex-direction: column; gap: 15px; min-height: 0; }
+        #detect-msg { font-size: 1.8rem; font-weight: bold; color: var(--success); height: 2.2rem; text-align: center; letter-spacing: 2px; }
+
+        #view-container { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+        
+        #multi-view { display: flex; flex-direction: column; justify-content: space-around; flex: 1; overflow-y: auto; padding: 2px 8px; }
+        
+        #multi-view::-webkit-scrollbar { width: 4px; }
+        #multi-view::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+        .lane { display: none; flex-direction: column; gap: 4px; }
+        .lane.active { display: flex; }
+        
+        .lane-label { display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem; font-weight: bold; transition: 0.2s; }
+        
+        /* [修正] scaleや色変更を削除し、白固定＆レイアウトのはみ出しを防止 */
+        .holding { text-shadow: 0 0 8px rgba(255, 255, 255, 0.8); }
+        
+        .manual-btn {
+            background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3);
+            color: white; border-radius: 4px; width: 22px; height: 22px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; font-weight: bold; font-size: 0.8rem; transition: 0.1s;
+        }
+        .manual-btn:hover { background: rgba(255,255,255,0.3); }
+        .manual-btn:active { transform: scale(0.9); }
+
+        .bar-bg { width: 100%; height: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; overflow: hidden; }
+        .bar-fill { height: 100%; width: 0%; transition: width 0.3s ease; box-shadow: 0 0 10px currentColor; }
+
+        #shared-view { display: none; align-items: center; justify-content: center; flex: 1; }
+        .unified-meter {
+            width: 100%; height: 100px; background: rgba(0,0,0,0.4); border-radius: 15px;
+            border: 2px solid var(--border); overflow: hidden; display: flex; box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+        }
+        .meter-segment {
+            height: 100%; transition: flex 0.8s ease; display: flex; align-items: center; justify-content: center;
+            font-size: 0.9rem; font-weight: bold; color: white; border-right: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .ranking-card { display: flex; flex-direction: column; gap: 10px; }
+        .ranking-tabs { display: flex; align-items: center; gap: 15px; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 5px; }
+        .tab-btn { font-size: 0.9rem; font-weight: bold; cursor: pointer; color: #666; transition: 0.2s; letter-spacing: 1px; }
+        .tab-btn.active { color: var(--gold); text-shadow: 0 0 8px rgba(255, 215, 0, 0.5); }
+        
+        .export-btn {
+            background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.4);
+            color: #22c55e; border-radius: 6px; width: 28px; height: 28px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; margin-left: auto; transition: 0.2s; padding: 0;
+        }
+        .export-btn:hover { background: #22c55e; color: white; }
+        .export-btn:active { transform: scale(0.9); }
+
+        #ranking-list { display: flex; flex-direction: column; gap: 8px; font-size: 1rem; flex: 1; overflow-y: auto; max-height: 200px; }
+        #log-list { display: none; flex-direction: column; gap: 6px; font-size: 0.85rem; flex: 1; overflow-y: auto; max-height: 200px; padding-right: 5px; }
+        
+        #ranking-list::-webkit-scrollbar, #log-list::-webkit-scrollbar { width: 4px; }
+        #ranking-list::-webkit-scrollbar-thumb, #log-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+        
+        .rank-item { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 6px; }
+        .rank-num { font-weight: 900; color: var(--gold); width: 25px; }
+        .log-item { display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); padding: 6px 10px; border-radius: 4px; font-family: monospace; border-left: 3px solid; }
+
+        .settings-grid { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+        .set-item { background: rgba(255,255,255,0.03); padding: 8px; border-radius: 10px; font-size: 0.7rem; border-top: 3px solid transparent; }
+        .set-item.disabled { opacity: 0.2; filter: grayscale(1); }
+        .set-item input[type="text"], .set-item input[type="number"] { background: #000; border: 1px solid #444; color: #fff; width: 100%; margin-top: 2px; border-radius: 4px; font-size: 0.8rem; }
+        .set-item input[type="range"] { width: 100%; margin-top: 2px; }
+        
+        .activity-bg { width: 100%; height: 4px; background: #111; border-radius: 2px; margin-top: 5px; overflow: hidden; }
+        .activity-fill { height: 100%; width: 0%; background: var(--accent); transition: width 0.1s linear; }
+
+        .btn { border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        .btn-main { background: var(--accent); color: #000; width: 100%; padding: 12px; font-size: 1rem; }
+        .btn-main:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-reset { background: #ef4444; color: white; font-size: 0.7rem; padding: 4px 10px; }
+        .btn-factory { background: #475569; color: white; font-size: 0.7rem; padding: 4px 10px; }
+
+        .goal-flash { animation: goal 0.5s infinite alternate; }
+        @keyframes goal { from { filter: brightness(1); } to { filter: brightness(1.5) drop-shadow(0 0 10px white); } }
+
+        #start-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 2000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    </style>
+</head>
+<body>
+
+<div id="start-overlay">
+    <div class="logo" style="font-size: 3rem; margin-bottom: 2rem;">COLOR COUNTER</div>
+    <button class="btn btn-main" onclick="begin()" style="width: auto; padding: 20px 80px; font-size: 1.5rem;">INITIALIZE SYSTEM</button>
+</div>
+
+<header>
+    <div class="logo">COLOR COUNTER</div>
+    <div class="toolbar">
+        <div class="tool-item">
+            Mode:
+            <select id="mode-select" onchange="toggleMode(); sync();" style="background:#000; color:var(--accent); border:1px solid var(--border); border-radius:4px; font-size:0.75rem;">
+                <option value="normal">Normal</option>
+                <option value="time">Time Attack</option>
+            </select>
+            <span id="time-limit-wrapper" style="display:none; margin-left:5px;">
+                <input type="number" id="time-limit-val" value="60" step="1" min="1" onchange="updateTimerInitialDisplay(); sync();" style="width:35px; background:none; color:var(--accent); border:none; text-align:center;">s
+            </span>
+        </div>
+        <div class="tool-item">
+            Audio:
+            <select id="sound-mode" onchange="sync()" style="background:#000; color:var(--accent); border:1px solid var(--border); border-radius:4px; font-size:0.75rem;">
+                <option value="all">Voice+Beep</option>
+                <option value="beep">Beep Only</option>
+                <option value="mute">Mute</option>
+            </select>
+        </div>
+        <div class="tool-item">
+            View: <span>Split</span>
+            <label class="switch">
+                <input type="checkbox" id="view-toggle" onchange="sync()">
+                <span class="slider"></span>
+            </label>
+            <span>Shared</span>
+        </div>
+        <div class="tool-item">
+            Downtime: <input type="number" id="downtime-val" value="2.0" step="0.5" min="0" onchange="sync()" style="width:35px; background:none; color:var(--accent); border:none; text-align:center;">s
+        </div>
+        <button class="btn" style="background: var(--warning); color: #000; font-size: 0.7rem; padding: 4px 10px;" onclick="calibrateBackground()">CALIBRATE</button>
+        
+        <button class="btn btn-reset" onclick="fullReset()">SYSTEM RESET</button>
+        <button class="btn btn-factory" onclick="factoryReset()">FACTORY RESET</button>
+    </div>
+</header>
+
+<div class="container">
+    <div class="sidebar">
+        <div id="camera-box">
+            <canvas id="canvas"></canvas>
+            <div class="scan-guide"></div>
+            <button class="camera-switch-btn" onclick="switchCamera(event)" title="Switch Camera">🔄</button>
+        </div>
+        <div class="card">
+            <div id="timer-display">00:00.0</div>
+            <button class="btn btn-main" id="t-ctrl" onclick="toggleTimer()">START TIMER</button>
+        </div>
+    </div>
+
+    <div class="main-display card">
+        <div id="detect-msg">SYSTEM READY</div>
+        <div id="view-container">
+            <div id="multi-view"></div>
+            <div id="shared-view"><div class="unified-meter" id="unified-meter"></div></div>
+        </div>
+    </div>
+
+    <div class="card ranking-card">
+        <div class="ranking-tabs">
+            <span id="tab-ranking" class="tab-btn active" onclick="toggleLogView('ranking')">GOAL RANKING</span>
+            <span style="color:#444;">|</span>
+            <span id="tab-log" class="tab-btn" onclick="toggleLogView('log')">LAP LOG</span>
+            
+            <button class="export-btn" onclick="exportCSV()" title="Export CSV">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+            </button>
+        </div>
+        <div id="ranking-list"></div>
+        <div id="log-list"></div>
+    </div>
+
+    <div class="settings-grid" id="set-container"></div>
+</div>
+
+<script>
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const video = document.createElement("video");
+    const timerDisplay = document.getElementById("timer-display");
+    const detectMsg = document.getElementById("detect-msg");
+    const tCtrl = document.getElementById("t-ctrl");
+    const multiView = document.getElementById("multi-view");
+    const sharedView = document.getElementById("shared-view");
+    const unifiedMeter = document.getElementById("unified-meter");
+    const viewToggle = document.getElementById("view-toggle");
+    const downtimeInput = document.getElementById("downtime-val");
+    const rankingList = document.getElementById("ranking-list");
+    const logList = document.getElementById("log-list");
+    const modeSelect = document.getElementById("mode-select");
+    const timeLimitWrapper = document.getElementById("time-limit-wrapper");
+    const soundModeSelect = document.getElementById("sound-mode");
+
+    let timerId = null, startTime = 0, elapsed = 0;
+    let cdInterval = null; 
+    let isRacing = false; 
+    let audioCtx = null;
+    let ranking = [];
+    let lapHistory = []; 
+
+    let calibBaselines = { yellow: 0, red: 0, blue: 0, pink: 0, purple: 0, black: 0 };
+    let isRequestingCalibration = false;
+    let pickingColorId = null;
+    let currentFacingMode = "user";
+    let wakeLock = null;
+
+    function initPWA() {
+        if (!('serviceWorker' in navigator)) return;
+        if (document.querySelector('link[rel="manifest"]')) return;
+
+        const manifest = {
+            "name": "ColorCounter",
+            "short_name": "ColorCounter",
+            "display": "standalone",
+            "background_color": "#0a0f1e",
+            "theme_color": "#00f2fe",
+            "icons": [{
+                "src": "data:image/svg+xml;base64," + btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192"><rect width="100%" height="100%" fill="#0a0f1e"/><text x="50%" y="50%" fill="#00f2fe" font-size="50" font-family="sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="middle">CC</text></svg>`),
+                "sizes": "192x192",
+                "type": "image/svg+xml"
+            }]
+        };
+        const manifestBlob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
+        const link = document.createElement('link');
+        link.rel = 'manifest';
+        link.href = URL.createObjectURL(manifestBlob);
+        document.head.appendChild(link);
+
+        const swCode = `
+            self.addEventListener('install', e => self.skipWaiting());
+            self.addEventListener('activate', e => self.clients.claim());
+            self.addEventListener('fetch', e => {});
+        `;
+        const swBlob = new Blob([swCode], {type: 'application/javascript'});
+        navigator.serviceWorker.register(URL.createObjectURL(swBlob)).catch(console.error);
+    }
+    initPWA();
+
+    async function requestWakeLock() {
+        try {
+            if ('wakeLock' in navigator) {
+                wakeLock = await navigator.wakeLock.request('screen');
+            }
+        } catch (err) {
+            console.error(`Wake Lock Error: ${err.message}`);
+        }
+    }
+
+    document.addEventListener('visibilitychange', async () => {
+        if (wakeLock !== null && document.visibilityState === 'visible') {
+            await requestWakeLock();
+        }
+    });
+
+    async function initCamera() {
+        if (video.srcObject) {
+            video.srcObject.getTracks().forEach(track => track.stop());
+        }
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacingMode } });
+            video.srcObject = stream;
+            await video.play();
+            canvas.style.transform = currentFacingMode === "user" ? "scaleX(-1)" : "scaleX(1)";
+        } catch (e) { 
+            alert("Camera access denied or error: " + e); 
+        }
+    }
+
+    async function switchCamera(e) {
+        e.stopPropagation(); 
+        currentFacingMode = currentFacingMode === "user" ? "environment" : "user";
+        await initCamera();
+    }
+
+    function calibrateBackground() {
+        isRequestingCalibration = true;
+        detectMsg.innerText = "CALIBRATING...";
+    }
+
+    function togglePick(id) {
+        if (pickingColorId === id) {
+            pickingColorId = null;
+            document.getElementById(`pick-btn-${id}`).style.background = "#555";
+            document.getElementById(`pick-btn-${id}`).style.color = "white";
+            detectMsg.innerText = isRacing ? "GO!!" : "SYSTEM READY";
+            return;
+        }
+        
+        if (pickingColorId) {
+            document.getElementById(`pick-btn-${pickingColorId}`).style.background = "#555";
+            document.getElementById(`pick-btn-${pickingColorId}`).style.color = "white";
+        }
+        
+        pickingColorId = id;
+        const btn = document.getElementById(`pick-btn-${id}`);
+        btn.style.background = "var(--warning)";
+        btn.style.color = "#000";
+        detectMsg.innerText = "TAP CAMERA TO PICK COLOR";
+    }
+
+    function toggleLogView(view) {
+        if (view === 'ranking') {
+            document.getElementById('tab-ranking').classList.add('active');
+            document.getElementById('tab-log').classList.remove('active');
+            rankingList.style.display = 'flex';
+            logList.style.display = 'none';
+        } else {
+            document.getElementById('tab-log').classList.add('active');
+            document.getElementById('tab-ranking').classList.remove('active');
+            rankingList.style.display = 'none';
+            logList.style.display = 'flex';
+        }
+    }
+
+    function exportCSV() {
+        let csv = "Category,Name,Lap,Time\n";
+        
+        ranking.forEach((r, i) => {
+            csv += `Ranking #${i+1},${r.name},-,${r.time}\n`;
+        });
+        
+        lapHistory.forEach(l => {
+            csv += `LapLog,${l.name},${l.lap},${l.time}\n`;
+        });
+
+        const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+        const blob = new Blob([bom, csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const dateStr = new Date().toISOString().slice(0,10).replace(/-/g,"");
+        a.download = `ColorCounter_${dateStr}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    const configs = [
+        { id:'yellow', name:'YELLOW', hex:'#ffff00', active:true,  thresh:600, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 57, hueTol: 20 },
+        { id:'red',    name:'RED',    hex:'#ff3b30', active:true,  thresh:600, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 0, hueTol: 15 },
+        { id:'blue',   name:'BLUE',   hex:'#007aff', active:true,  thresh:600, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 222, hueTol: 30 },
+        { id:'pink',   name:'PINK',   hex:'#ff69b4', active:false, thresh:600, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 325, hueTol: 25 },
+        { id:'purple', name:'PURPLE', hex:'#af52de', active:false, thresh:600, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 280, hueTol: 20 },
+        { id:'black',  name:'BLACK',  hex:'#555555', active:false, thresh:1500, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, special: 'black' }
+    ];
+
+    function rgbToHsl(r, g, b) {
+        r /= 255; g /= 255; b /= 255;
+        const max = Math.max(r, g, b), min = Math.min(r, g, b);
+        let h, s, l = (max + min) / 2;
+        if (max === min) { h = s = 0; } 
+        else {
+            const d = max - min;
+            s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+            switch (max) {
+                case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                case g: h = (b - r) / d + 2; break;
+                case b: h = (r - g) / d + 4; break;
+            }
+            h /= 6;
+        }
+        return [h * 360, s * 100, l * 100];
+    }
+
+    function playFeedback(type, config) {
+        const smode = soundModeSelect.value;
+        if (smode === 'mute') return;
+
+        if (smode === 'all' || smode === 'beep') {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            
+            if (type === 'lap' || type === 'start') {
+                osc.frequency.setValueAtTime(type === 'start' ? 1760 : 880, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + (type === 'start' ? 0.3 : 0.1));
+                osc.start(); osc.stop(audioCtx.currentTime + (type === 'start' ? 0.3 : 0.1));
+            } else if (type === 'goal') {
+                [523.25, 659.25, 783.99].forEach((f, i) => {
+                    const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+                    o.connect(g); g.connect(audioCtx.destination);
+                    o.type = 'square'; o.frequency.setValueAtTime(f, audioCtx.currentTime + i * 0.1);
+                    g.gain.setValueAtTime(0.05, audioCtx.currentTime + i * 0.1);
+                    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + i * 0.1 + 0.4);
+                    o.start(audioCtx.currentTime + i * 0.1); o.stop(audioCtx.currentTime + i * 0.1 + 0.4);
+                });
+            }
+        }
+
+        if (smode === 'all' && config) {
+            window.speechSynthesis.cancel();
+            let text = "";
+            if (type === 'goal') {
+                text = `${config.name} finished!`;
+            } else if (type === 'lap') {
+                text = `${config.name} lap ${config.current}`;
+            } else if (type === 'timeup') {
+                text = "Time up! Finished.";
+            }
+            if (text) {
+                const u = new SpeechSynthesisUtterance(text);
+                u.lang = "en-US"; u.rate = 1.2;
+                window.speechSynthesis.speak(u);
+            }
+        }
+    }
+
+    function toggleMode() {
+        const isTime = modeSelect.value === 'time';
+        timeLimitWrapper.style.display = isTime ? 'inline-block' : 'none';
+        fullReset();
+    }
+
+    function updateTimerInitialDisplay() {
+        if (modeSelect.value === 'time') {
+            const limit = parseFloat(document.getElementById('time-limit-val').value) || 0;
+            const m = Math.floor(limit / 60).toString().padStart(2,'0');
+            const s = Math.floor(limit % 60).toString().padStart(2,'0');
+            timerDisplay.innerText = `${m}:${s}.0`;
+        } else {
+            timerDisplay.innerText = "00:00.0";
+        }
+    }
+
+    function manualCount(id, delta) {
+        const c = configs.find(x => x.id === id);
+        if (!c || !c.active) return;
+        const mode = modeSelect.value;
+
+        if (delta > 0) {
+            if (c.finished && mode === 'normal') return; 
+            c.current++;
+            const logTime = timerDisplay.innerText;
+            lapHistory.unshift({ name: c.name, color: c.hex, lap: c.current, time: logTime });
+            updateLogUI();
+
+            const isGoal = (mode === 'normal') ? c.current >= c.target : false;
+            if (isGoal) {
+                c.finished = true;
+                ranking.push({ name: c.name, color: c.hex, time: logTime });
+                playFeedback('goal', c);
+                detectMsg.innerText = c.name + " FINISHED!! (MANUAL)";
+            } else {
+                playFeedback('lap', c);
+                detectMsg.innerText = c.name + " LAP " + c.current + " (MANUAL)";
+            }
+        } else {
+            if (c.current > 0) {
+                c.current--;
+                c.finished = false; 
+                
+                const logIdx = lapHistory.findIndex(log => log.name === c.name);
+                if (logIdx !== -1) lapHistory.splice(logIdx, 1);
+                updateLogUI();
+                
+                const rankIdx = ranking.findIndex(r => r.name === c.name);
+                if (rankIdx !== -1) ranking.splice(rankIdx, 1);
+                
+                detectMsg.innerText = c.name + " -1 (UNDO)";
+            }
+        }
+        sync();
+    }
+
+    function init() {
+        const saved = JSON.parse(localStorage.getItem('cc_eng_v2') || '[]');
+        const setContainer = document.getElementById('set-container');
+        configs.forEach((c, i) => {
+            if (saved[i]) {
+                c.active = saved[i].active;
+                c.name = saved[i].name;
+                c.target = saved[i].target;
+                c.thresh = saved[i].thresh;
+                if (saved[i].hueCenter !== undefined) c.hueCenter = saved[i].hueCenter;
+            }
+            const lane = document.createElement('div');
+            lane.className = `lane`; lane.id = `lane-${c.id}`;
+            lane.innerHTML = `
+                <div class="lane-label" id="label-${c.id}">
+                    <span>${c.name}</span>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        <button class="manual-btn" onclick="manualCount('${c.id}', -1)">-</button>
+                        <span id="num-${c.id}">${c.current}/${c.target}</span>
+                        <button class="manual-btn" onclick="manualCount('${c.id}', 1)">+</button>
+                    </div>
+                </div>
+                <div class="bar-bg"><div class="bar-fill" id="bar-${c.id}" style="background:${c.hex}; color:${c.hex}"></div></div>`;
+            multiView.appendChild(lane);
+            
+            const hueControl = c.special === 'black' ? '' : 
+                `Hue(<span id="hval-${c.id}">${c.hueCenter}</span>°): 
+                 <button class="btn" style="background:#555; color:white; font-size:0.55rem; padding:2px 6px; margin-left:4px; vertical-align:middle;" onclick="togglePick('${c.id}')" id="pick-btn-${c.id}">PICK</button>
+                 <input type="range" id="h-${c.id}" min="0" max="360" step="1" value="${c.hueCenter}" oninput="sync()">`;
+
+            const sc = document.createElement('div');
+            sc.className = `set-item`; sc.id = `sc-${c.id}`; sc.style.borderTopColor = c.hex;
+            sc.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center;"><b style="color:${c.hex}">${c.id.toUpperCase()}</b><input type="checkbox" id="on-${c.id}" ${c.active?'checked':''} onchange="sync()"></div>
+                Name:<input type="text" id="n-${c.id}" value="${c.name}" oninput="sync()">
+                Target:<input type="number" id="t-${c.id}" value="${c.target}" oninput="sync()">
+                Sens:<input type="range" id="r-${c.id}" min="100" max="4000" step="50" value="${c.thresh}" oninput="sync()">
+                ${hueControl}
+                <div class="activity-bg"><div class="activity-fill" id="act-${c.id}"></div></div>
+            `;
+            setContainer.appendChild(sc);
+        });
+
+        const globalSaved = JSON.parse(localStorage.getItem('cc_global_settings_v1'));
+        if (globalSaved) {
+            modeSelect.value = globalSaved.mode || 'normal';
+            document.getElementById('time-limit-val').value = globalSaved.timeLimit || 60;
+            downtimeInput.value = globalSaved.downtime || 2.0;
+            viewToggle.checked = globalSaved.isShared || false;
+            soundModeSelect.value = globalSaved.soundMode || 'all';
+            
+            const isTime = modeSelect.value === 'time';
+            timeLimitWrapper.style.display = isTime ? 'inline-block' : 'none';
+        }
+
+        sync();
+        updateTimerInitialDisplay(); 
+    }
+
+    function sync() {
+        const isShared = viewToggle.checked;
+        const mode = modeSelect.value;
+        multiView.style.display = isShared ? "none" : "flex";
+        sharedView.style.display = isShared ? "flex" : "none";
+        
+        let totalTarget = 0, totalCurrent = 0;
+        const maxCurr = Math.max(1, ...configs.map(x => x.current));
+        
+        unifiedMeter.innerHTML = "";
+        configs.forEach(c => {
+            c.active = document.getElementById(`on-${c.id}`).checked;
+            c.name = document.getElementById(`n-${c.id}`).value;
+            c.target = parseInt(document.getElementById(`t-${c.id}`).value) || 1;
+            c.thresh = parseInt(document.getElementById(`r-${c.id}`).value);
+            
+            if (c.special !== 'black') {
+                c.hueCenter = parseInt(document.getElementById(`h-${c.id}`).value);
+                document.getElementById(`hval-${c.id}`).innerText = c.hueCenter;
+            }
+
+            document.getElementById(`lane-${c.id}`).className = `lane ${c.active ? 'active' : ''}`;
+            document.getElementById(`sc-${c.id}`).className = `set-item ${c.active ? '' : 'disabled'}`;
+            
+            document.getElementById(`num-${c.id}`).innerText = mode === 'time' ? `${c.current}` : `${c.current} / ${c.target}`;
+            
+            const bar = document.getElementById(`bar-${c.id}`);
+            if (mode === 'time') {
+                bar.style.width = Math.min(100, (c.current / maxCurr) * 100) + "%";
+                bar.classList.toggle('goal-flash', false); 
+            } else {
+                bar.style.width = Math.min(100, (c.current / c.target) * 100) + "%";
+                bar.classList.toggle('goal-flash', c.current >= c.target);
+            }
+
+            if(c.active) {
+                totalTarget += c.target; totalCurrent += c.current;
+                if(isShared && c.current > 0) {
+                    const seg = document.createElement('div');
+                    seg.className = "meter-segment"; seg.style.flex = c.current; seg.style.background = c.hex; seg.innerText = c.name.charAt(0);
+                    unifiedMeter.appendChild(seg);
+                }
+            }
+        });
+        
+        if (mode === 'normal') {
+            unifiedMeter.classList.toggle('goal-flash', totalCurrent >= totalTarget && totalTarget > 0);
+        } else {
+            unifiedMeter.classList.toggle('goal-flash', false);
+        }
+        
+        updateRankingUI();
+
+        localStorage.setItem('cc_eng_v2', JSON.stringify(configs));
+        
+        const globalSettings = {
+            mode: modeSelect.value,
+            timeLimit: document.getElementById('time-limit-val').value,
+            downtime: downtimeInput.value,
+            isShared: viewToggle.checked,
+            soundMode: soundModeSelect.value
+        };
+        localStorage.setItem('cc_global_settings_v1', JSON.stringify(globalSettings));
+    }
+
+    function updateRankingUI() {
+        rankingList.innerHTML = "";
+        ranking.forEach((e, i) => {
+            const item = document.createElement("div");
+            item.className = "rank-item";
+            const scoreDisplay = e.time ? e.time : `${e.count} Laps`;
+            item.innerHTML = `<span class="rank-num">#${i+1}</span> <span style="color:${e.color}; font-weight:bold;">${e.name}</span> <small style="margin-left:auto; color:#888;">${scoreDisplay}</small>`;
+            rankingList.appendChild(item);
+        });
+    }
+
+    function updateLogUI() {
+        logList.innerHTML = "";
+        lapHistory.forEach((log) => {
+            const item = document.createElement("div");
+            item.className = "log-item";
+            item.style.borderLeftColor = log.color;
+            item.innerHTML = `<span style="color:${log.color}; font-weight:bold;">${log.name} <span style="color:#aaa; font-size:0.75rem;">(Lap ${log.lap})</span></span> <span style="color:var(--accent);">${log.time}</span>`;
+            logList.appendChild(item);
+        });
+    }
+
+    function toggleTimer() {
+        if (cdInterval) return;
+
+        if (timerId || isRacing) {
+            clearInterval(timerId); timerId = null;
+            isRacing = false;
+            tCtrl.innerText = "RESUME TIMER";
+        } else {
+            tCtrl.disabled = true;
+            tCtrl.innerText = "STARTING...";
+            let count = 5;
+            timerDisplay.innerText = `- 0${count} -`;
+            detectMsg.innerText = "GET READY...";
+            playFeedback('lap');
+
+            cdInterval = setInterval(() => {
+                count--;
+                if (count > 0) {
+                    timerDisplay.innerText = `- 0${count} -`;
+                    playFeedback('lap');
+                } else {
+                    clearInterval(cdInterval);
+                    cdInterval = null;
+                    isRacing = true;
+                    tCtrl.disabled = false;
+                    tCtrl.innerText = "STOP TIMER";
+                    detectMsg.innerText = "GO!!";
+                    
+                    playFeedback('start');
+
+                    startTime = Date.now() - elapsed;
+                    timerId = setInterval(() => {
+                        elapsed = Date.now() - startTime;
+                        
+                        let displayTime = elapsed;
+                        const isTimeMode = (modeSelect.value === 'time');
+
+                        if (isTimeMode) {
+                            const limit = parseFloat(document.getElementById('time-limit-val').value) * 1000;
+                            displayTime = limit - elapsed;
+                            if (displayTime <= 0) displayTime = 0;
+                        }
+
+                        const m = Math.floor(displayTime / 60000).toString().padStart(2,'0');
+                        const s = Math.floor((displayTime % 60000) / 1000).toString().padStart(2,'0');
+                        const ms = Math.floor((displayTime % 1000) / 100);
+                        timerDisplay.innerText = `${m}:${s}.${ms}`;
+
+                        if (isTimeMode && displayTime <= 0) {
+                            finishTimeAttack();
+                        }
+                    }, 100);
+                }
+            }, 1000);
+        }
+    }
+
+    function finishTimeAttack() {
+        clearInterval(timerId); timerId = null;
+        isRacing = false;
+        tCtrl.innerText = "TIME UP";
+        detectMsg.innerText = "FINISH!!";
+        
+        playFeedback('goal'); 
+        playFeedback('timeup', { name: "Time up" }); 
+
+        ranking = configs
+            .filter(c => c.active && c.current > 0)
+            .map(c => ({ name: c.name, color: c.hex, count: c.current }))
+            .sort((a, b) => b.count - a.count);
+        
+        updateRankingUI();
+    }
+
+    function fullReset() {
+        if(!confirm("Reset all race data?")) return;
+        if (cdInterval) { clearInterval(cdInterval); cdInterval = null; }
+        configs.forEach(c => { c.current = 0; c.isHeld = false; c.lastActionTime = 0; c.finished = false; });
+        ranking = []; 
+        lapHistory = []; 
+        elapsed = 0; isRacing = false;
+        pickingColorId = null; 
+        
+        updateTimerInitialDisplay(); 
+        
+        if(timerId) { clearInterval(timerId); timerId = null; }
+        tCtrl.innerText = "START TIMER";
+        tCtrl.disabled = false;
+        sync(); 
+        updateLogUI();
+        detectMsg.innerText = "SYSTEM RESET COMPLETE";
+        
+        toggleLogView('ranking');
+    }
+
+    function factoryReset() {
+        if(confirm("全ての設定を初期状態に戻しますか？ (Reset all settings to default?)")) {
+            localStorage.removeItem('cc_eng_v2');
+            localStorage.removeItem('cc_global_settings_v1');
+            location.reload();
+        }
+    }
+
+    async function begin() {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        document.getElementById("start-overlay").style.display = "none";
+        
+        await requestWakeLock();
+        await initCamera();
+        loop(); 
+    }
+
+    function loop() {
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            canvas.width = 320; canvas.height = 240;
+            ctx.drawImage(video, 0, 0, 320, 240);
+            const data = ctx.getImageData(110, 70, 100, 100).data;
+            let pc = { yellow:0, red:0, blue:0, pink:0, purple:0, black:0 };
+            
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i], g = data[i+1], b = data[i+2];
+                const [h, s, l] = rgbToHsl(r, g, b);
+
+                if (l < 25) {
+                    pc.black++;
+                } else if (s > 25 && l > 20) {
+                    for (let j = 0; j < configs.length; j++) {
+                        const c = configs[j];
+                        if (c.special === 'black') continue;
+                        
+                        let diff = Math.abs(h - c.hueCenter);
+                        if (diff > 180) diff = 360 - diff;
+                        
+                        if (diff <= c.hueTol) {
+                            pc[c.id]++;
+                            break; 
+                        }
+                    }
+                }
+            }
+
+            if (isRequestingCalibration) {
+                configs.forEach(c => calibBaselines[c.id] = pc[c.id]);
+                isRequestingCalibration = false;
+                detectMsg.innerText = "CALIBRATION DONE";
+                setTimeout(() => { if(!isRacing && !pickingColorId) detectMsg.innerText = "SYSTEM READY"; }, 1000);
+            }
+
+            configs.forEach(c => {
+                pc[c.id] = Math.max(0, pc[c.id] - calibBaselines[c.id]);
+            });
+
+            const now = Date.now(), dt = parseFloat(downtimeInput.value) * 1000;
+            const mode = modeSelect.value;
+            
+            configs.forEach(c => {
+                if (!c.active) {
+                    document.getElementById(`act-${c.id}`).style.width = "0%";
+                    return;
+                }
+
+                const actFill = document.getElementById(`act-${c.id}`);
+                const actPercent = Math.min(100, (pc[c.id] / c.thresh) * 100);
+                actFill.style.width = actPercent + "%";
+                actFill.style.backgroundColor = actPercent >= 100 ? "white" : c.hex;
+
+                if (c.finished) return;
+
+                const isSeen = pc[c.id] > c.thresh;
+                const lbl = document.getElementById(`label-${c.id}`);
+                
+                if (isSeen) {
+                    if (isRacing && !c.isHeld && (now - c.lastActionTime > dt)) { 
+                        c.isHeld = true; lbl.classList.add('holding'); 
+                        detectMsg.innerText = "DETECTING " + c.name + "..."; 
+                    }
+                } else if (c.isHeld) {
+                    c.isHeld = false; 
+                    
+                    if (isRacing) {
+                        c.current++; c.lastActionTime = now; lbl.classList.remove('holding');
+                        
+                        const logTime = timerDisplay.innerText;
+                        lapHistory.unshift({ name: c.name, color: c.hex, lap: c.current, time: logTime });
+                        updateLogUI();
+
+                        const isGoal = (mode === 'normal') ? c.current >= c.target : false;
+                        
+                        if (isGoal) {
+                            c.finished = true; ranking.push({ name: c.name, color: c.hex, time: timerDisplay.innerText });
+                            playFeedback('goal', c);
+                            detectMsg.innerText = c.name + " FINISHED!!";
+                        } else {
+                            playFeedback('lap', c);
+                            detectMsg.innerText = c.name + " LAP " + c.current;
+                        }
+                        sync();
+                    }
+                }
+            });
+        }
+        requestAnimationFrame(loop);
+    }
+    
+    document.getElementById('camera-box').addEventListener('click', (e) => {
+        if (!pickingColorId || e.target.classList.contains('camera-switch-btn')) return;
+
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.clientX - rect.left;
+        const clientY = e.clientY - rect.top;
+
+        const normX = clientX / rect.width;
+        const normY = clientY / rect.height;
+        
+        const internalX = currentFacingMode === "user" 
+            ? Math.floor((1.0 - normX) * canvas.width) 
+            : Math.floor(normX * canvas.width);        
+            
+        const internalY = Math.floor(normY * canvas.height);
+
+        if (internalX < 0 || internalX >= canvas.width || internalY < 0 || internalY >= canvas.height) return;
+
+        const pixelData = ctx.getImageData(internalX, internalY, 1, 1).data;
+        const [h, s, l] = rgbToHsl(pixelData[0], pixelData[1], pixelData[2]);
+
+        const c = configs.find(cfg => cfg.id === pickingColorId);
+        if (c) {
+            c.hueCenter = Math.floor(h);
+            document.getElementById(`h-${c.id}`).value = c.hueCenter;
+            document.getElementById(`hval-${c.id}`).innerText = c.hueCenter;
+            sync(); 
+        }
+
+        const btn = document.getElementById(`pick-btn-${pickingColorId}`);
+        btn.style.background = "#555";
+        btn.style.color = "white";
+        pickingColorId = null;
+        
+        detectMsg.innerText = "COLOR PICKED!";
+        setTimeout(() => {
+            if (!pickingColorId) detectMsg.innerText = isRacing ? "GO!!" : "SYSTEM READY";
+        }, 1500);
+    });
+
+    init();
+</script>
+</body>
+</html>

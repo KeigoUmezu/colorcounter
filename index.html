@@ -169,7 +169,8 @@
 
 <div id="start-overlay">
     <div class="logo" style="font-size: 3rem; margin-bottom: 2rem;">COLOR & 4x4 ARUCO</div>
-    <button class="btn btn-main" onclick="begin()" style="width: auto; padding: 20px 80px; font-size: 1.5rem;">INITIALIZE SYSTEM</button>
+    <button class="btn btn-main" id="init-btn" onclick="begin()" style="width: auto; padding: 20px 80px; font-size: 1.5rem;">INITIALIZE SYSTEM</button>
+    <div id="load-status" style="margin-top: 15px; font-size: 0.9rem; color: var(--warning);">Loading Core Libraries...</div>
 </div>
 
 <header>
@@ -262,7 +263,15 @@
 <script>
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    
+    // 【極めて重要】iOS/iPadOS等のインライン再生制限を突破するための完全な設定
     const video = document.createElement("video");
+    video.setAttribute("playsinline", "");
+    video.setAttribute("webkit-playsinline", "");
+    video.setAttribute("autoplay", "");
+    video.setAttribute("muted", "");
+    video.muted = true; // 強制ミュート（自動再生の必須条件）
+
     const timerDisplay = document.getElementById("timer-display");
     const detectMsg = document.getElementById("detect-msg");
     const tCtrl = document.getElementById("t-ctrl");
@@ -287,7 +296,7 @@
     let calibBaselines = { yellow: 0, red: 0, blue: 0, pink: 0, purple: 0, black: 0 };
     let isRequestingCalibration = false;
     let pickingColorId = null;
-    let currentFacingMode = "user";
+    let currentFacingMode = "environment"; // デフォルトを背面カメラに変更(マーカー認識は基本背面で行うため)
     let wakeLock = null;
     
     let arucoDetector = null;
@@ -304,6 +313,25 @@
         { id:'black',  name:'BLACK',  hex:'#475569', active:false, detectMode:'color', thresh:300, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, special: 'black', arucoId: '' }
     ];
 
+    // ライブラリのロード監視
+    window.onload = () => {
+        const checkArLoad = setInterval(() => {
+            if (typeof AR !== 'undefined') {
+                clearInterval(checkArLoad);
+                document.getElementById('load-status').style.color = 'var(--success)';
+                document.getElementById('load-status').innerText = 'System Ready to Initialize.';
+            }
+        }, 200);
+        // 5秒経っても読めなければエラー表示
+        setTimeout(() => {
+            if (typeof AR === 'undefined') {
+                clearInterval(checkArLoad);
+                document.getElementById('load-status').style.color = '#ef4444';
+                document.getElementById('load-status').innerHTML = '⚠️ Library load failed.<br>Check internet connection or refresh.';
+            }
+        }, 5000);
+    };
+
     async function requestWakeLock() {
         try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } 
         catch (err) { console.error(`Wake Lock Error: ${err.message}`); }
@@ -316,11 +344,27 @@
     async function initCamera() {
         if (video.srcObject) video.srcObject.getTracks().forEach(track => track.stop());
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacingMode, width: { ideal: 640 }, height: { ideal: 480 } } });
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { 
+                    facingMode: currentFacingMode, 
+                    width: { ideal: 640 }, 
+                    height: { ideal: 480 } 
+                } 
+            });
             video.srcObject = stream;
-            await video.play();
+            
+            // Promiseを使用してビデオのメタデータ読み込みと再生を確実に保証する
+            await new Promise((resolve, reject) => {
+                video.onloadedmetadata = () => {
+                    video.play().then(resolve).catch(reject);
+                };
+            });
+            
             canvas.style.transform = currentFacingMode === "user" ? "scaleX(-1)" : "scaleX(1)";
-        } catch (e) { alert("Camera access error: " + e); }
+        } catch (e) { 
+            alert("カメラへのアクセスエラーまたは再生エラーが発生しました。\nブラウザのカメラ許可を確認してください。\n詳細: " + e.message); 
+            console.error("Camera Error: ", e);
+        }
     }
 
     async function switchCamera(e) {
@@ -725,93 +769,94 @@
     }
 
     async function begin() {
+        if (typeof AR === 'undefined') {
+            alert("ライブラリの読み込みが完了していません。ページを再読み込みしてください。");
+            return;
+        }
+
         if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         document.getElementById("start-overlay").style.display = "none";
         
         // --- 4x4 ArUco OVERRIDE JS-ARUCO ---
-        if (typeof AR !== 'undefined') {
-            AR.Detector.prototype.detect = function(image){
-                CV.grayscale(image, this.grey);
-                CV.adaptiveThreshold(this.grey, this.thres, 2, 7);
-                this.contours = CV.findContours(this.thres, this.binary);
-                // 変更点: 認識最小サイズを画面の20%から5%に引き下げ、小さなマーカーも認識可能に
-                this.candidates = this.findCandidates(this.contours, image.width * 0.05, 0.05, 10);
-                this.candidates = this.clockwiseCorners(this.candidates);
-                this.candidates = this.notTooNear(this.candidates, 10);
-                return this.findMarkers(this.grey, this.candidates, 48); // 4x4 data + border = 6x6 (48px)
-            };
+        AR.Detector.prototype.detect = function(image){
+            CV.grayscale(image, this.grey);
+            CV.adaptiveThreshold(this.grey, this.thres, 2, 7);
+            this.contours = CV.findContours(this.thres, this.binary);
+            // 画面サイズの5%まで小さなマーカーを認識
+            this.candidates = this.findCandidates(this.contours, image.width * 0.05, 0.05, 10);
+            this.candidates = this.clockwiseCorners(this.candidates);
+            this.candidates = this.notTooNear(this.candidates, 10);
+            return this.findMarkers(this.grey, this.candidates, 48);
+        };
 
-            AR.Detector.prototype.findMarkers = function(imageSrc, candidates, warpSize){
-                var markers = [];
-                for (var i = 0; i < candidates.length; ++i){
-                    var marker = this.getMarker4x4(imageSrc, candidates[i], warpSize);
-                    if (marker){ markers.push(marker); }
-                }
-                return markers;
-            };
+        AR.Detector.prototype.findMarkers = function(imageSrc, candidates, warpSize){
+            var markers = [];
+            for (var i = 0; i < candidates.length; ++i){
+                var marker = this.getMarker4x4(imageSrc, candidates[i], warpSize);
+                if (marker){ markers.push(marker); }
+            }
+            return markers;
+        };
 
-            AR.Detector.prototype.getMarker4x4 = function(imageSrc, candidate, warpSize){
-                var homography = CV.findHomography(candidate, [{x:0,y:0}, {x:warpSize,y:0}, {x:warpSize,y:warpSize}, {x:0,y:warpSize}]);
-                var warped = CV.warp(imageSrc, homography, warpSize);
+        AR.Detector.prototype.getMarker4x4 = function(imageSrc, candidate, warpSize){
+            var homography = CV.findHomography(candidate, [{x:0,y:0}, {x:warpSize,y:0}, {x:warpSize,y:warpSize}, {x:0,y:warpSize}]);
+            var warped = CV.warp(imageSrc, homography, warpSize);
 
-                // 変更点: 大津の2値化(Otsu Threshold)を追加し、環境光(暗い/明るい)に強固に対応
-                CV.threshold(warped, warped, CV.otsu(warped));
+            // 環境光対策：大津の2値化アルゴリズムを適用
+            CV.threshold(warped, warped, CV.otsu(warped));
 
-                var cellSize = warpSize / 6;
-                var bits = [];
-                for (var y = 0; y < 6; ++y){
-                    bits[y] = [];
-                    for (var x = 0; x < 6; ++x){
-                        var sum = 0;
-                        for (var dy = 2; dy < 6; ++dy){
-                            for (var dx = 2; dx < 6; ++dx){
-                                sum += warped.data[(y * cellSize + dy) * warpSize + (x * cellSize + dx)];
-                            }
+            var cellSize = warpSize / 6;
+            var bits = [];
+            for (var y = 0; y < 6; ++y){
+                bits[y] = [];
+                for (var x = 0; x < 6; ++x){
+                    var sum = 0;
+                    for (var dy = 2; dy < 6; ++dy){
+                        for (var dx = 2; dx < 6; ++dx){
+                            sum += warped.data[(y * cellSize + dy) * warpSize + (x * cellSize + dx)];
                         }
-                        bits[y][x] = (sum / 16) > 127 ? 1 : 0; // Black=0, White=1
                     }
+                    bits[y][x] = (sum / 16) > 127 ? 1 : 0;
                 }
+            }
 
-                // マーカーの黒枠のチェック
-                for (var i = 0; i < 6; ++i){
-                    if (bits[0][i] !== 0 || bits[5][i] !== 0 || bits[i][0] !== 0 || bits[i][5] !== 0){ return null; }
+            // 黒枠の検証
+            for (var i = 0; i < 6; ++i){
+                if (bits[0][i] !== 0 || bits[5][i] !== 0 || bits[i][0] !== 0 || bits[i][5] !== 0){ return null; }
+            }
+
+            var inner = [];
+            for (var y = 0; y < 4; ++y){
+                inner[y] = [];
+                for (var x = 0; x < 4; ++x){ inner[y][x] = bits[y+1][x+1]; }
+            }
+
+            var minId = 0xFFFF;
+            var bestRotation = 0;
+            var currentInner = inner;
+
+            // 4方向の回転から最小IDを取得
+            for (var r = 0; r < 4; ++r) {
+                var currentId = 0;
+                for (var y = 0; y < 4; ++y) {
+                    for (var x = 0; x < 4; ++x) { currentId = (currentId << 1) | currentInner[y][x]; }
                 }
-
-                var inner = [];
-                for (var y = 0; y < 4; ++y){
-                    inner[y] = [];
-                    for (var x = 0; x < 4; ++x){ inner[y][x] = bits[y+1][x+1]; }
+                if (currentId < minId) { minId = currentId; bestRotation = r; }
+                
+                var rotated = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
+                for (var y = 0; y < 4; ++y) {
+                    for (var x = 0; x < 4; ++x) { rotated[x][3-y] = currentInner[y][x]; }
                 }
+                currentInner = rotated;
+            }
 
-                var minId = 0xFFFF;
-                var bestRotation = 0;
-                var currentInner = inner;
+            var corners = [];
+            for (var i = 0; i < 4; ++i) { corners.push(candidate[(i + 4 - bestRotation) % 4]); }
 
-                // 4方向から一意の16ビットIDを算出
-                for (var r = 0; r < 4; ++r) {
-                    var currentId = 0;
-                    for (var y = 0; y < 4; ++y) {
-                        for (var x = 0; x < 4; ++x) { currentId = (currentId << 1) | currentInner[y][x]; }
-                    }
-                    if (currentId < minId) { minId = currentId; bestRotation = r; }
-                    
-                    var rotated = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
-                    for (var y = 0; y < 4; ++y) {
-                        for (var x = 0; x < 4; ++x) { rotated[x][3-y] = currentInner[y][x]; }
-                    }
-                    currentInner = rotated;
-                }
+            return { id: minId, corners: corners };
+        };
 
-                var corners = [];
-                for (var i = 0; i < 4; ++i) { corners.push(candidate[(i + 4 - bestRotation) % 4]); }
-
-                return { id: minId, corners: corners };
-            };
-
-            arucoDetector = new AR.Detector();
-        } else {
-            console.error("js-aruco not loaded.");
-        }
+        arucoDetector = new AR.Detector();
 
         await requestWakeLock(); await initCamera(); loop(); 
     }
@@ -827,8 +872,7 @@
                     const fullImageData = ctx.getImageData(0, 0, 640, 480);
                     const markers = arucoDetector.detect(fullImageData);
 
-                    // 【追加機能】学習モード中、カメラが「候補(四角形)」と認識しているものを白点線で表示
-                    // （カメラがピントを合わせられているかどうかの確認用）
+                    // 学習モード中のカメラ認識領域を可視化
                     if (learningArucoLane && arucoDetector.candidates) {
                         arucoDetector.candidates.forEach(cand => {
                             ctx.lineWidth = 1;
@@ -846,7 +890,7 @@
                     }
                     
                     markers.forEach(marker => {
-                        // 学習モード: 最初に認識したマーカーを登録する
+                        // 学習モード: 最初に認識したマーカーを登録
                         if (learningArucoLane) {
                             const c = configs.find(cfg => cfg.id === learningArucoLane);
                             if (c) {
@@ -861,7 +905,6 @@
                             }
                         }
 
-                        // 通常の認識描画
                         const matchedConfig = configs.find(c => c.active && c.detectMode === 'aruco' && c.arucoId === marker.id);
                         const drawColor = matchedConfig ? matchedConfig.hex : 'rgba(255,255,255,0.7)';
                         const textStr = matchedConfig ? `P${matchedConfig.current} (ID:${marker.id})` : `ID:${marker.id}`;

@@ -136,13 +136,16 @@
         .rank-num { font-weight: 900; color: var(--gold); width: 25px; }
         .log-item { display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2); padding: 8px 10px; border-radius: 6px; font-family: monospace; border-left: 4px solid; }
 
-        .settings-grid { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+        .settings-grid { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
         .set-item { background: rgba(0,0,0,0.3); padding: 12px; border-radius: 10px; font-size: 0.75rem; border-top: 4px solid transparent; display: flex; flex-direction: column; gap: 6px; }
         .set-item.disabled { opacity: 0.3; filter: grayscale(1); }
         
         .input-group { display: flex; align-items: center; justify-content: space-between; }
-        .set-item input[type="text"], .set-item input[type="number"] { background: #1e293b; border: 1px solid #334155; color: #fff; border-radius: 4px; padding: 4px 6px; font-size: 0.8rem; width: 60px; text-align: center; }
+        .set-item input[type="text"], .set-item input[type="number"], .set-item select { 
+            background: #1e293b; border: 1px solid #334155; color: #fff; border-radius: 4px; padding: 4px 6px; font-size: 0.8rem; width: 60px; text-align: center; 
+        }
         .set-item input[type="text"] { width: 80px; text-align: left; }
+        .set-item select { width: auto; text-align: left; }
         .set-item input[type="range"] { width: 100%; margin: 2px 0; accent-color: var(--accent); }
         
         .activity-bg { width: 100%; height: 6px; background: #0f172a; border-radius: 3px; margin-top: 4px; overflow: hidden; border: 1px solid #334155; }
@@ -152,14 +155,12 @@
         .btn-main { background: var(--accent); color: #000; width: 100%; padding: 14px; font-size: 1.1rem; text-transform: uppercase; letter-spacing: 1px; }
         .btn-main:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn-reset { background: #ef4444; color: white; font-size: 0.75rem; padding: 6px 12px; }
-        .btn-factory { background: #64748b; color: white; font-size: 0.75rem; padding: 6px 12px; }
 
         .goal-flash { animation: goal 0.5s infinite alternate; }
         @keyframes goal { from { filter: brightness(1); } to { filter: brightness(1.5) drop-shadow(0 0 15px rgba(255,255,255,0.8)); } }
 
         #start-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 2000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 
-        /* Area Settings Modal/Panel */
         #area-settings { display: none; width: 100%; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 8px; margin-top: 10px; gap: 10px; flex-wrap: wrap; border: 1px solid var(--border); }
         .area-control { display: flex; flex-direction: column; width: 45%; font-size: 0.75rem; }
     </style>
@@ -288,41 +289,22 @@
     let pickingColorId = null;
     let currentFacingMode = "user";
     let wakeLock = null;
-
-    // ArUco Detector
     let arucoDetector = null;
 
-    // ROI Variables
     let roi = { x: 25, y: 25, w: 50, h: 50 };
 
-    function initPWA() {
-        if (!('serviceWorker' in navigator)) return;
-        if (document.querySelector('link[rel="manifest"]')) return;
-
-        const manifest = {
-            "name": "LapCounter Pro",
-            "short_name": "LapCounter",
-            "display": "standalone",
-            "background_color": "#0f172a",
-            "theme_color": "#38bdf8",
-            "icons": [{
-                "src": "data:image/svg+xml;base64," + btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192"><rect width="100%" height="100%" fill="#0f172a"/><text x="50%" y="50%" fill="#38bdf8" font-size="50" font-family="sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="middle">LAP</text></svg>`),
-                "sizes": "192x192",
-                "type": "image/svg+xml"
-            }]
-        };
-        const manifestBlob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
-        const link = document.createElement('link');
-        link.rel = 'manifest';
-        link.href = URL.createObjectURL(manifestBlob);
-        document.head.appendChild(link);
-    }
-    initPWA();
+    const configs = [
+        { id:'yellow', name:'YELLOW', hex:'#facc15', active:true,  detectMode:'color', thresh:100, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 57, hueTol: 20, arucoId: 0 },
+        { id:'red',    name:'RED',    hex:'#ef4444', active:true,  detectMode:'color', thresh:100, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 0, hueTol: 15, arucoId: 1 },
+        { id:'blue',   name:'BLUE',   hex:'#3b82f6', active:true,  detectMode:'color', thresh:100, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 222, hueTol: 30, arucoId: 2 },
+        { id:'pink',   name:'PINK',   hex:'#ec4899', active:false, detectMode:'color', thresh:100, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 325, hueTol: 25, arucoId: 3 },
+        { id:'purple', name:'PURPLE', hex:'#a855f7', active:false, detectMode:'color', thresh:100, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 280, hueTol: 20, arucoId: 4 },
+        { id:'black',  name:'BLACK',  hex:'#475569', active:false, detectMode:'color', thresh:300, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, special: 'black', arucoId: 5 }
+    ];
 
     async function requestWakeLock() {
-        try {
-            if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
-        } catch (err) { console.error(`Wake Lock Error: ${err.message}`); }
+        try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } 
+        catch (err) { console.error(`Wake Lock Error: ${err.message}`); }
     }
 
     document.addEventListener('visibilitychange', async () => {
@@ -360,12 +342,9 @@
         roi.y = parseInt(document.getElementById('roi-y').value);
         roi.w = parseInt(document.getElementById('roi-w').value);
         roi.h = parseInt(document.getElementById('roi-h').value);
-        
-        // Prevent out of bounds
         if (roi.x + roi.w > 100) { roi.w = 100 - roi.x; document.getElementById('roi-w').value = roi.w; }
         if (roi.y + roi.h > 100) { roi.h = 100 - roi.y; document.getElementById('roi-h').value = roi.h; }
-        
-        localStorage.setItem('cc_roi_v1', JSON.stringify(roi));
+        localStorage.setItem('cc_roi_v2', JSON.stringify(roi));
     }
 
     function togglePick(id) {
@@ -375,9 +354,7 @@
             detectMsg.innerText = isRacing ? "GO!!" : "SYSTEM READY";
             return;
         }
-        if (pickingColorId) {
-            document.getElementById(`pick-btn-${pickingColorId}`).style.background = "#475569";
-        }
+        if (pickingColorId) document.getElementById(`pick-btn-${pickingColorId}`).style.background = "#475569";
         pickingColorId = id;
         const btn = document.getElementById(`pick-btn-${id}`);
         btn.style.background = "var(--warning)";
@@ -388,13 +365,11 @@
         if (view === 'ranking') {
             document.getElementById('tab-ranking').classList.add('active');
             document.getElementById('tab-log').classList.remove('active');
-            rankingList.style.display = 'flex';
-            logList.style.display = 'none';
+            rankingList.style.display = 'flex'; logList.style.display = 'none';
         } else {
             document.getElementById('tab-log').classList.add('active');
             document.getElementById('tab-ranking').classList.remove('active');
-            rankingList.style.display = 'none';
-            logList.style.display = 'flex';
+            rankingList.style.display = 'none'; logList.style.display = 'flex';
         }
     }
 
@@ -403,20 +378,10 @@
         ranking.forEach((r, i) => csv += `Ranking #${i+1},${r.name},-,${r.time}\n`);
         lapHistory.forEach(l => csv += `LapLog,${l.name},${l.lap},${l.time}\n`);
         const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csv], { type: 'text/csv' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
         a.download = `LapData_${new Date().toISOString().slice(0,10).replace(/-/g,"")}.csv`;
         a.click();
     }
-
-    const configs = [
-        { id:'yellow', name:'YELLOW', hex:'#facc15', active:true,  thresh:100, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 57, hueTol: 20, arucoId: -1 },
-        { id:'red',    name:'RED',    hex:'#ef4444', active:true,  thresh:100, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 0, hueTol: 15, arucoId: -1 },
-        { id:'blue',   name:'BLUE',   hex:'#3b82f6', active:true,  thresh:100, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 222, hueTol: 30, arucoId: -1 },
-        { id:'pink',   name:'PINK',   hex:'#ec4899', active:false, thresh:100, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 325, hueTol: 25, arucoId: -1 },
-        { id:'purple', name:'PURPLE', hex:'#a855f7', active:false, thresh:100, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, hueCenter: 280, hueTol: 20, arucoId: -1 },
-        { id:'black',  name:'BLACK',  hex:'#475569', active:false, thresh:300, target:5, current:0, isHeld: false, lastActionTime: 0, finished: false, special: 'black', arucoId: -1 }
-    ];
 
     function rgbToHsl(r, g, b) {
         r /= 255; g /= 255; b /= 255;
@@ -442,8 +407,7 @@
 
         if (smode === 'all' || smode === 'beep') {
             if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
+            const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
             osc.connect(gain); gain.connect(audioCtx.destination);
             
             if (type === 'lap' || type === 'start') {
@@ -464,14 +428,7 @@
 
         if (smode === 'all' && config) {
             window.speechSynthesis.cancel();
-            let text = "";
-            if (type === 'goal') {
-                text = `${config.name} finished!`;
-            } else if (type === 'lap') {
-                text = `${config.name} lap ${config.current}`;
-            } else if (type === 'timeup') {
-                text = "Time up! Finished.";
-            }
+            let text = type === 'goal' ? `${config.name} finished!` : type === 'lap' ? `${config.name} lap ${config.current}` : "Time up! Finished.";
             if (text) {
                 const u = new SpeechSynthesisUtterance(text);
                 u.lang = "en-US"; u.rate = 1.1; u.pitch = 1.0;
@@ -492,9 +449,7 @@
             const m = Math.floor(limit / 60).toString().padStart(2,'0');
             const s = Math.floor(limit % 60).toString().padStart(2,'0');
             timerDisplay.innerText = `${m}:${s}.0`;
-        } else {
-            timerDisplay.innerText = "00:00.0";
-        }
+        } else timerDisplay.innerText = "00:00.0";
     }
 
     function manualCount(id, delta) {
@@ -511,25 +466,19 @@
 
             const isGoal = (mode === 'normal') ? c.current >= c.target : false;
             if (isGoal) {
-                c.finished = true;
-                ranking.push({ name: c.name, color: c.hex, time: logTime });
-                playFeedback('goal', c);
-                detectMsg.innerText = c.name + " FINISHED!! (MANUAL)";
+                c.finished = true; ranking.push({ name: c.name, color: c.hex, time: logTime });
+                playFeedback('goal', c); detectMsg.innerText = c.name + " FINISHED!! (MANUAL)";
             } else {
-                playFeedback('lap', c);
-                detectMsg.innerText = c.name + " LAP " + c.current + " (MANUAL)";
+                playFeedback('lap', c); detectMsg.innerText = c.name + " LAP " + c.current + " (MANUAL)";
             }
         } else {
             if (c.current > 0) {
-                c.current--;
-                c.finished = false; 
+                c.current--; c.finished = false; 
                 const logIdx = lapHistory.findIndex(log => log.name === c.name);
                 if (logIdx !== -1) lapHistory.splice(logIdx, 1);
                 updateLogUI();
-                
                 const rankIdx = ranking.findIndex(r => r.name === c.name);
                 if (rankIdx !== -1) ranking.splice(rankIdx, 1);
-                
                 detectMsg.innerText = c.name + " -1 (UNDO)";
             }
         }
@@ -537,29 +486,27 @@
     }
 
     function init() {
-        const saved = JSON.parse(localStorage.getItem('cc_eng_v3') || '[]');
-        const savedRoi = JSON.parse(localStorage.getItem('cc_roi_v1'));
+        const saved = JSON.parse(localStorage.getItem('cc_eng_v4') || '[]');
+        const savedRoi = JSON.parse(localStorage.getItem('cc_roi_v2'));
         if (savedRoi) {
             roi = savedRoi;
-            document.getElementById('roi-x').value = roi.x;
-            document.getElementById('roi-y').value = roi.y;
-            document.getElementById('roi-w').value = roi.w;
-            document.getElementById('roi-h').value = roi.h;
+            document.getElementById('roi-x').value = roi.x; document.getElementById('roi-y').value = roi.y;
+            document.getElementById('roi-w').value = roi.w; document.getElementById('roi-h').value = roi.h;
         }
 
         const setContainer = document.getElementById('set-container');
         configs.forEach((c, i) => {
             if (saved[i]) {
                 c.active = saved[i].active !== undefined ? saved[i].active : c.active;
+                c.detectMode = saved[i].detectMode || c.detectMode;
                 c.name = saved[i].name || c.name;
                 c.target = saved[i].target || c.target;
                 c.thresh = saved[i].thresh || c.thresh;
                 c.hueCenter = saved[i].hueCenter !== undefined ? saved[i].hueCenter : c.hueCenter;
                 c.hueTol = saved[i].hueTol !== undefined ? saved[i].hueTol : c.hueTol;
-                c.arucoId = saved[i].arucoId !== undefined ? saved[i].arucoId : -1;
+                c.arucoId = saved[i].arucoId !== undefined ? saved[i].arucoId : c.arucoId;
             }
             
-            // Generate Main View Lane
             const lane = document.createElement('div');
             lane.className = `lane`; lane.id = `lane-${c.id}`;
             lane.innerHTML = `
@@ -574,7 +521,6 @@
                 <div class="bar-bg"><div class="bar-fill" id="bar-${c.id}" style="background:${c.hex}; color:${c.hex}"></div></div>`;
             multiView.appendChild(lane);
             
-            // Generate Settings UI
             const hueControl = c.special === 'black' ? '' : `
                 <div class="input-group">
                     <span style="display:flex; align-items:center;">Hue(<span id="hval-${c.id}" style="display:inline-block; width:22px;">${c.hueCenter}</span>°):
@@ -588,27 +534,41 @@
             const sc = document.createElement('div');
             sc.className = `set-item`; sc.id = `sc-${c.id}`; sc.style.borderTopColor = c.hex;
             sc.innerHTML = `
-                <div class="input-group"><b style="color:${c.hex}">${c.id.toUpperCase()}</b><input type="checkbox" id="on-${c.id}" ${c.active?'checked':''} onchange="sync()" style="transform:scale(1.2);"></div>
+                <div class="input-group">
+                    <b style="color:${c.hex}">${c.id.toUpperCase()}</b>
+                    <input type="checkbox" id="on-${c.id}" ${c.active?'checked':''} onchange="sync()" style="transform:scale(1.2);">
+                </div>
                 <div class="input-group">Name:<input type="text" id="n-${c.id}" value="${c.name}" oninput="sync()"></div>
                 <div class="input-group">Target:<input type="number" id="t-${c.id}" value="${c.target}" oninput="sync()"></div>
-                <div class="input-group">ArUco ID:<input type="number" id="aruco-${c.id}" value="${c.arucoId}" placeholder="None=-1" oninput="sync()"></div>
-                <div class="input-group">Sens(px):<input type="range" id="r-${c.id}" min="10" max="2000" step="10" value="${c.thresh}" style="width:60px;" oninput="sync()"></div>
-                ${hueControl}
+                <div class="input-group">Mode:
+                    <select id="dm-${c.id}" onchange="sync()">
+                        <option value="color" ${c.detectMode === 'color' ? 'selected' : ''}>Color</option>
+                        <option value="aruco" ${c.detectMode === 'aruco' ? 'selected' : ''}>ArUco</option>
+                    </select>
+                </div>
+                
+                <div id="wrap-aruco-${c.id}">
+                    <div class="input-group">ArUco ID:<input type="number" id="aruco-${c.id}" value="${c.arucoId}" oninput="sync()"></div>
+                </div>
+
+                <div id="wrap-color-${c.id}">
+                    <div class="input-group">Sens(px):<input type="range" id="r-${c.id}" min="10" max="2000" step="10" value="${c.thresh}" style="width:60px;" oninput="sync()"></div>
+                    ${hueControl}
+                </div>
+
                 <div class="activity-bg"><div class="activity-fill" id="act-${c.id}"></div></div>
             `;
             setContainer.appendChild(sc);
         });
 
-        const globalSaved = JSON.parse(localStorage.getItem('cc_global_settings_v3'));
+        const globalSaved = JSON.parse(localStorage.getItem('cc_global_settings_v4'));
         if (globalSaved) {
             modeSelect.value = globalSaved.mode || 'normal';
             document.getElementById('time-limit-val').value = globalSaved.timeLimit || 60;
             downtimeInput.value = globalSaved.downtime || 2.0;
             viewToggle.checked = globalSaved.isShared || false;
             soundModeSelect.value = globalSaved.soundMode || 'all';
-            
-            const isTime = modeSelect.value === 'time';
-            timeLimitWrapper.style.display = isTime ? 'inline-block' : 'none';
+            timeLimitWrapper.style.display = modeSelect.value === 'time' ? 'inline-block' : 'none';
         }
 
         sync();
@@ -629,9 +589,9 @@
             c.active = document.getElementById(`on-${c.id}`).checked;
             c.name = document.getElementById(`n-${c.id}`).value;
             c.target = parseInt(document.getElementById(`t-${c.id}`).value) || 1;
-            c.thresh = parseInt(document.getElementById(`r-${c.id}`).value);
+            c.detectMode = document.getElementById(`dm-${c.id}`).value;
             c.arucoId = parseInt(document.getElementById(`aruco-${c.id}`).value);
-            if(isNaN(c.arucoId)) c.arucoId = -1;
+            c.thresh = parseInt(document.getElementById(`r-${c.id}`).value);
             
             if (c.special !== 'black') {
                 c.hueCenter = parseInt(document.getElementById(`h-${c.id}`).value);
@@ -639,9 +599,12 @@
                 document.getElementById(`hval-${c.id}`).innerText = c.hueCenter;
             }
 
+            // Toggles UI blocks per lane based on mode
+            document.getElementById(`wrap-aruco-${c.id}`).style.display = c.detectMode === 'aruco' ? 'block' : 'none';
+            document.getElementById(`wrap-color-${c.id}`).style.display = c.detectMode === 'color' ? 'block' : 'none';
+
             document.getElementById(`lane-${c.id}`).className = `lane ${c.active ? 'active' : ''}`;
             document.getElementById(`sc-${c.id}`).className = `set-item ${c.active ? '' : 'disabled'}`;
-            
             document.getElementById(`num-${c.id}`).innerText = mode === 'time' ? `${c.current}` : `${c.current} / ${c.target}`;
             
             const bar = document.getElementById(`bar-${c.id}`);
@@ -663,33 +626,21 @@
             }
         });
         
-        if (mode === 'normal') {
-            unifiedMeter.classList.toggle('goal-flash', totalCurrent >= totalTarget && totalTarget > 0);
-        } else {
-            unifiedMeter.classList.toggle('goal-flash', false);
-        }
-        
+        unifiedMeter.classList.toggle('goal-flash', mode === 'normal' && totalCurrent >= totalTarget && totalTarget > 0);
         updateRankingUI();
 
-        localStorage.setItem('cc_eng_v3', JSON.stringify(configs));
-        
-        const globalSettings = {
-            mode: modeSelect.value,
-            timeLimit: document.getElementById('time-limit-val').value,
-            downtime: downtimeInput.value,
-            isShared: viewToggle.checked,
-            soundMode: soundModeSelect.value
-        };
-        localStorage.setItem('cc_global_settings_v3', JSON.stringify(globalSettings));
+        localStorage.setItem('cc_eng_v4', JSON.stringify(configs));
+        localStorage.setItem('cc_global_settings_v4', JSON.stringify({
+            mode: modeSelect.value, timeLimit: document.getElementById('time-limit-val').value,
+            downtime: downtimeInput.value, isShared: viewToggle.checked, soundMode: soundModeSelect.value
+        }));
     }
 
     function updateRankingUI() {
         rankingList.innerHTML = "";
         ranking.forEach((e, i) => {
-            const item = document.createElement("div");
-            item.className = "rank-item";
-            const scoreDisplay = e.time ? e.time : `${e.count} Laps`;
-            item.innerHTML = `<span class="rank-num">#${i+1}</span> <span style="color:${e.color}; font-weight:bold;">${e.name}</span> <small style="margin-left:auto; color:var(--text-muted);">${scoreDisplay}</small>`;
+            const item = document.createElement("div"); item.className = "rank-item";
+            item.innerHTML = `<span class="rank-num">#${i+1}</span> <span style="color:${e.color}; font-weight:bold;">${e.name}</span> <small style="margin-left:auto; color:var(--text-muted);">${e.time ? e.time : `${e.count} Laps`}</small>`;
             rankingList.appendChild(item);
         });
     }
@@ -697,9 +648,7 @@
     function updateLogUI() {
         logList.innerHTML = "";
         lapHistory.forEach((log) => {
-            const item = document.createElement("div");
-            item.className = "log-item";
-            item.style.borderLeftColor = log.color;
+            const item = document.createElement("div"); item.className = "log-item"; item.style.borderLeftColor = log.color;
             item.innerHTML = `<span style="color:${log.color}; font-weight:bold;">${log.name} <span style="color:var(--text-muted); font-size:0.7rem;">(Lap ${log.lap})</span></span> <span style="color:var(--accent);">${log.time}</span>`;
             logList.appendChild(item);
         });
@@ -707,55 +656,32 @@
 
     function toggleTimer() {
         if (cdInterval) return;
-
         if (timerId || isRacing) {
-            clearInterval(timerId); timerId = null;
-            isRacing = false;
-            tCtrl.innerText = "RESUME TIMER";
+            clearInterval(timerId); timerId = null; isRacing = false; tCtrl.innerText = "RESUME TIMER";
         } else {
-            tCtrl.disabled = true;
-            tCtrl.innerText = "STARTING...";
-            let count = 5;
-            timerDisplay.innerText = `- 0${count} -`;
-            detectMsg.innerText = "GET READY...";
+            tCtrl.disabled = true; tCtrl.innerText = "STARTING...";
+            let count = 5; timerDisplay.innerText = `- 0${count} -`; detectMsg.innerText = "GET READY...";
             playFeedback('lap');
-
             cdInterval = setInterval(() => {
                 count--;
-                if (count > 0) {
-                    timerDisplay.innerText = `- 0${count} -`;
-                    playFeedback('lap');
-                } else {
-                    clearInterval(cdInterval);
-                    cdInterval = null;
-                    isRacing = true;
-                    tCtrl.disabled = false;
-                    tCtrl.innerText = "STOP TIMER";
-                    detectMsg.innerText = "GO!!";
-                    
-                    playFeedback('start');
-
+                if (count > 0) { timerDisplay.innerText = `- 0${count} -`; playFeedback('lap'); } 
+                else {
+                    clearInterval(cdInterval); cdInterval = null; isRacing = true; tCtrl.disabled = false;
+                    tCtrl.innerText = "STOP TIMER"; detectMsg.innerText = "GO!!"; playFeedback('start');
                     startTime = Date.now() - elapsed;
                     timerId = setInterval(() => {
                         elapsed = Date.now() - startTime;
-                        
                         let displayTime = elapsed;
                         const isTimeMode = (modeSelect.value === 'time');
-
                         if (isTimeMode) {
-                            const limit = parseFloat(document.getElementById('time-limit-val').value) * 1000;
-                            displayTime = limit - elapsed;
+                            displayTime = (parseFloat(document.getElementById('time-limit-val').value) * 1000) - elapsed;
                             if (displayTime <= 0) displayTime = 0;
                         }
-
                         const m = Math.floor(displayTime / 60000).toString().padStart(2,'0');
                         const s = Math.floor((displayTime % 60000) / 1000).toString().padStart(2,'0');
                         const ms = Math.floor((displayTime % 1000) / 100);
                         timerDisplay.innerText = `${m}:${s}.${ms}`;
-
-                        if (isTimeMode && displayTime <= 0) {
-                            finishTimeAttack();
-                        }
+                        if (isTimeMode && displayTime <= 0) finishTimeAttack();
                     }, 100);
                 }
             }, 1000);
@@ -763,19 +689,9 @@
     }
 
     function finishTimeAttack() {
-        clearInterval(timerId); timerId = null;
-        isRacing = false;
-        tCtrl.innerText = "TIME UP";
-        detectMsg.innerText = "FINISH!!";
-        
-        playFeedback('goal'); 
-        playFeedback('timeup', { name: "Time up" }); 
-
-        ranking = configs
-            .filter(c => c.active && c.current > 0)
-            .map(c => ({ name: c.name, color: c.hex, count: c.current }))
-            .sort((a, b) => b.count - a.count);
-        
+        clearInterval(timerId); timerId = null; isRacing = false; tCtrl.innerText = "TIME UP"; detectMsg.innerText = "FINISH!!";
+        playFeedback('goal'); playFeedback('timeup', { name: "Time up" }); 
+        ranking = configs.filter(c => c.active && c.current > 0).map(c => ({ name: c.name, color: c.hex, count: c.current })).sort((a, b) => b.count - a.count);
         updateRankingUI();
     }
 
@@ -783,37 +699,19 @@
         if(!confirm("Reset all race data?")) return;
         if (cdInterval) { clearInterval(cdInterval); cdInterval = null; }
         configs.forEach(c => { c.current = 0; c.isHeld = false; c.lastActionTime = 0; c.finished = false; });
-        ranking = []; 
-        lapHistory = []; 
-        elapsed = 0; isRacing = false;
-        pickingColorId = null; 
-        
+        ranking = []; lapHistory = []; elapsed = 0; isRacing = false; pickingColorId = null; 
         updateTimerInitialDisplay(); 
-        
         if(timerId) { clearInterval(timerId); timerId = null; }
-        tCtrl.innerText = "START TIMER";
-        tCtrl.disabled = false;
-        sync(); 
-        updateLogUI();
-        detectMsg.innerText = "SYSTEM RESET COMPLETE";
-        
-        toggleLogView('ranking');
+        tCtrl.innerText = "START TIMER"; tCtrl.disabled = false; sync(); updateLogUI();
+        detectMsg.innerText = "SYSTEM RESET COMPLETE"; toggleLogView('ranking');
     }
 
     async function begin() {
         if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         document.getElementById("start-overlay").style.display = "none";
-        
-        // Initialize ArUco Detector
-        if (typeof AR !== 'undefined') {
-            arucoDetector = new AR.Detector();
-        } else {
-            console.warn("js-aruco library could not be loaded.");
-        }
-
-        await requestWakeLock();
-        await initCamera();
-        loop(); 
+        if (typeof AR !== 'undefined') arucoDetector = new AR.Detector();
+        else console.warn("js-aruco library could not be loaded.");
+        await requestWakeLock(); await initCamera(); loop(); 
     }
 
     function loop() {
@@ -821,26 +719,45 @@
             canvas.width = 320; canvas.height = 240;
             ctx.drawImage(video, 0, 0, 320, 240);
 
-            // ArUco Detection (Full canvas for better recognition)
+            // 1. ArUco Detection & Drawing
             let detectedArucoIds = [];
             if (arucoDetector) {
                 try {
                     const fullImageData = ctx.getImageData(0, 0, 320, 240);
                     const markers = arucoDetector.detect(fullImageData);
-                    detectedArucoIds = markers.map(m => m.id);
+                    
+                    markers.forEach(marker => {
+                        // アクティブかつArUcoモードで設定されているIDかチェック
+                        const matchedConfig = configs.find(c => c.active && c.detectMode === 'aruco' && c.arucoId === marker.id);
+                        if (matchedConfig) {
+                            detectedArucoIds.push(marker.id);
+                            
+                            // 枠線の描画
+                            ctx.lineWidth = 3;
+                            ctx.strokeStyle = matchedConfig.hex;
+                            ctx.beginPath();
+                            ctx.moveTo(marker.corners[0].x, marker.corners[0].y);
+                            ctx.lineTo(marker.corners[1].x, marker.corners[1].y);
+                            ctx.lineTo(marker.corners[2].x, marker.corners[2].y);
+                            ctx.lineTo(marker.corners[3].x, marker.corners[3].y);
+                            ctx.closePath();
+                            ctx.stroke();
+
+                            // IDの描画
+                            ctx.fillStyle = matchedConfig.hex;
+                            ctx.font = 'bold 16px sans-serif';
+                            ctx.fillText('ID: ' + marker.id, marker.corners[0].x, marker.corners[0].y - 5);
+                        }
+                    });
                 } catch(e) {}
             }
 
-            // Region of Interest (ROI) for Color Detection
-            const rx = Math.floor(320 * (roi.x / 100));
-            const ry = Math.floor(240 * (roi.y / 100));
-            const rw = Math.floor(320 * (roi.w / 100));
-            const rh = Math.floor(240 * (roi.h / 100));
+            // 2. ROI (Color Detection Area)
+            const rx = Math.floor(320 * (roi.x / 100)); const ry = Math.floor(240 * (roi.y / 100));
+            const rw = Math.floor(320 * (roi.w / 100)); const rh = Math.floor(240 * (roi.h / 100));
             
-            // Draw ROI visual guide
             ctx.strokeStyle = 'rgba(34, 197, 94, 0.8)';
-            ctx.lineWidth = 2;
-            ctx.setLineDash([5, 5]);
+            ctx.lineWidth = 2; ctx.setLineDash([5, 5]);
             ctx.strokeRect(rx, ry, rw, rh);
             ctx.setLineDash([]);
 
@@ -854,18 +771,14 @@
 
                     if (l < 25) {
                         pc.black++;
-                    } else if (s > 20 && l > 15) { // 高感度対応: sとlの下限を少し緩和
+                    } else if (s > 20 && l > 15) { 
                         for (let j = 0; j < configs.length; j++) {
                             const c = configs[j];
-                            if (c.special === 'black' || !c.active) continue;
+                            if (c.special === 'black' || !c.active || c.detectMode === 'aruco') continue; 
                             
                             let diff = Math.abs(h - c.hueCenter);
                             if (diff > 180) diff = 360 - diff;
-                            
-                            if (diff <= c.hueTol) {
-                                pc[c.id]++;
-                                break; 
-                            }
+                            if (diff <= c.hueTol) { pc[c.id]++; break; }
                         }
                     }
                 }
@@ -873,35 +786,34 @@
 
             if (isRequestingCalibration) {
                 configs.forEach(c => calibBaselines[c.id] = pc[c.id]);
-                isRequestingCalibration = false;
-                detectMsg.innerText = "CALIBRATION DONE";
+                isRequestingCalibration = false; detectMsg.innerText = "CALIBRATION DONE";
                 setTimeout(() => { if(!isRacing && !pickingColorId) detectMsg.innerText = "SYSTEM READY"; }, 1000);
             }
 
-            configs.forEach(c => {
-                pc[c.id] = Math.max(0, pc[c.id] - calibBaselines[c.id]);
-            });
+            configs.forEach(c => pc[c.id] = Math.max(0, pc[c.id] - calibBaselines[c.id]));
 
             const now = Date.now(), dt = parseFloat(downtimeInput.value) * 1000;
             const mode = modeSelect.value;
             
             configs.forEach(c => {
-                if (!c.active) {
-                    document.getElementById(`act-${c.id}`).style.width = "0%";
-                    return;
-                }
+                if (!c.active) { document.getElementById(`act-${c.id}`).style.width = "0%"; return; }
 
-                // UI update for color activity
+                // UI Activity Update (Color Mode Only)
                 const actFill = document.getElementById(`act-${c.id}`);
-                const actPercent = Math.min(100, (pc[c.id] / c.thresh) * 100);
-                actFill.style.width = actPercent + "%";
-                actFill.style.backgroundColor = actPercent >= 100 ? "white" : c.hex;
+                if (c.detectMode === 'color') {
+                    const actPercent = Math.min(100, (pc[c.id] / c.thresh) * 100);
+                    actFill.style.width = actPercent + "%";
+                    actFill.style.backgroundColor = actPercent >= 100 ? "white" : c.hex;
+                } else {
+                    const isArucoActive = detectedArucoIds.includes(c.arucoId);
+                    actFill.style.width = isArucoActive ? "100%" : "0%";
+                    actFill.style.backgroundColor = "white";
+                }
 
                 if (c.finished) return;
 
-                // 認識判定: ピクセル数が閾値を超える、または設定したArUco IDが検出された場合
-                const isSeenColor = pc[c.id] >= c.thresh;
-                const isSeenAruco = (c.arucoId >= 0 && detectedArucoIds.includes(c.arucoId));
+                const isSeenColor = c.detectMode === 'color' && pc[c.id] >= c.thresh;
+                const isSeenAruco = c.detectMode === 'aruco' && detectedArucoIds.includes(c.arucoId);
                 const isSeen = isSeenColor || isSeenAruco;
 
                 const lbl = document.getElementById(`label-${c.id}`);
@@ -909,28 +821,21 @@
                 if (isSeen) {
                     if (isRacing && !c.isHeld && (now - c.lastActionTime > dt)) { 
                         c.isHeld = true; lbl.classList.add('holding'); 
-                        const triggerMethod = isSeenAruco ? " (ArUco)" : "";
-                        detectMsg.innerText = "DETECTING " + c.name + triggerMethod + "..."; 
+                        detectMsg.innerText = "DETECTING " + c.name + "..."; 
                     }
                 } else if (c.isHeld) {
                     c.isHeld = false; 
-                    
                     if (isRacing) {
                         c.current++; c.lastActionTime = now; lbl.classList.remove('holding');
-                        
                         const logTime = timerDisplay.innerText;
                         lapHistory.unshift({ name: c.name, color: c.hex, lap: c.current, time: logTime });
                         updateLogUI();
-
                         const isGoal = (mode === 'normal') ? c.current >= c.target : false;
-                        
                         if (isGoal) {
                             c.finished = true; ranking.push({ name: c.name, color: c.hex, time: timerDisplay.innerText });
-                            playFeedback('goal', c);
-                            detectMsg.innerText = c.name + " FINISHED!!";
+                            playFeedback('goal', c); detectMsg.innerText = c.name + " FINISHED!!";
                         } else {
-                            playFeedback('lap', c);
-                            detectMsg.innerText = c.name + " LAP " + c.current;
+                            playFeedback('lap', c); detectMsg.innerText = c.name + " LAP " + c.current;
                         }
                         sync();
                     }
@@ -942,20 +847,10 @@
     
     document.getElementById('camera-wrapper').addEventListener('click', (e) => {
         if (!pickingColorId || e.target.classList.contains('camera-switch-btn')) return;
-
         const rect = canvas.getBoundingClientRect();
-        const clientX = e.clientX - rect.left;
-        const clientY = e.clientY - rect.top;
-
-        const normX = clientX / rect.width;
-        const normY = clientY / rect.height;
-        
-        const internalX = currentFacingMode === "user" 
-            ? Math.floor((1.0 - normX) * canvas.width) 
-            : Math.floor(normX * canvas.width);        
-            
+        const normX = (e.clientX - rect.left) / rect.width; const normY = (e.clientY - rect.top) / rect.height;
+        const internalX = currentFacingMode === "user" ? Math.floor((1.0 - normX) * canvas.width) : Math.floor(normX * canvas.width);        
         const internalY = Math.floor(normY * canvas.height);
-
         if (internalX < 0 || internalX >= canvas.width || internalY < 0 || internalY >= canvas.height) return;
 
         const pixelData = ctx.getImageData(internalX, internalY, 1, 1).data;
@@ -964,19 +859,13 @@
         const c = configs.find(cfg => cfg.id === pickingColorId);
         if (c) {
             c.hueCenter = Math.floor(h);
-            document.getElementById(`h-${c.id}`).value = c.hueCenter;
-            document.getElementById(`hval-${c.id}`).innerText = c.hueCenter;
+            document.getElementById(`h-${c.id}`).value = c.hueCenter; document.getElementById(`hval-${c.id}`).innerText = c.hueCenter;
             sync(); 
         }
 
-        const btn = document.getElementById(`pick-btn-${pickingColorId}`);
-        btn.style.background = "#475569";
-        pickingColorId = null;
-        
-        detectMsg.innerText = "COLOR PICKED!";
-        setTimeout(() => {
-            if (!pickingColorId) detectMsg.innerText = isRacing ? "GO!!" : "SYSTEM READY";
-        }, 1500);
+        document.getElementById(`pick-btn-${pickingColorId}`).style.background = "#475569";
+        pickingColorId = null; detectMsg.innerText = "COLOR PICKED!";
+        setTimeout(() => { if (!pickingColorId) detectMsg.innerText = isRacing ? "GO!!" : "SYSTEM READY"; }, 1500);
     });
 
     init();

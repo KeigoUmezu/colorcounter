@@ -290,7 +290,6 @@
     let currentFacingMode = "user";
     let wakeLock = null;
     
-    // カスタムArUcoDetectorと学習モード
     let arucoDetector = null;
     let learningArucoLane = null;
 
@@ -317,7 +316,6 @@
     async function initCamera() {
         if (video.srcObject) video.srcObject.getTracks().forEach(track => track.stop());
         try {
-            // 4x4マーカーを高精度で読むために解像度を640x480に設定
             const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacingMode, width: { ideal: 640 }, height: { ideal: 480 } } });
             video.srcObject = stream;
             await video.play();
@@ -504,7 +502,7 @@
     }
 
     function init() {
-        const saved = JSON.parse(localStorage.getItem('cc_eng_v6') || '[]');
+        const saved = JSON.parse(localStorage.getItem('cc_eng_v7') || '[]');
         const savedRoi = JSON.parse(localStorage.getItem('cc_roi_v2'));
         if (savedRoi) {
             roi = savedRoi;
@@ -566,7 +564,7 @@
                 </div>
                 
                 <div id="wrap-aruco-${c.id}" style="display:none; padding:6px; background:rgba(0,0,0,0.4); border-radius:6px; margin-top:4px;">
-                    <div style="font-size:0.65rem; color:var(--text-muted); margin-bottom:4px; line-height:1.2;">1. Click LEARN<br>2. Show 4x4 marker to camera</div>
+                    <div style="font-size:0.65rem; color:var(--text-muted); margin-bottom:4px; line-height:1.2;">1. Click LEARN<br>2. Show marker to camera</div>
                     <div style="display:flex; align-items:center; justify-content:space-between;">
                         <span style="font-size:0.75rem;">ID: <span id="aruco-val-${c.id}" style="color:var(--accent); font-weight:bold;">${c.arucoId !== '' ? c.arucoId : 'NONE'}</span></span>
                         <button class="btn" style="background:#6366f1; color:white; font-size:0.65rem; padding:4px 8px;" onclick="learnAruco('${c.id}')" id="learn-btn-${c.id}">LEARN</button>
@@ -583,7 +581,7 @@
             setContainer.appendChild(sc);
         });
 
-        const globalSaved = JSON.parse(localStorage.getItem('cc_global_settings_v6'));
+        const globalSaved = JSON.parse(localStorage.getItem('cc_global_settings_v7'));
         if (globalSaved) {
             modeSelect.value = globalSaved.mode || 'normal';
             document.getElementById('time-limit-val').value = globalSaved.timeLimit || 60;
@@ -649,8 +647,8 @@
         unifiedMeter.classList.toggle('goal-flash', mode === 'normal' && totalCurrent >= totalTarget && totalTarget > 0);
         updateRankingUI();
 
-        localStorage.setItem('cc_eng_v6', JSON.stringify(configs));
-        localStorage.setItem('cc_global_settings_v6', JSON.stringify({
+        localStorage.setItem('cc_eng_v7', JSON.stringify(configs));
+        localStorage.setItem('cc_global_settings_v7', JSON.stringify({
             mode: modeSelect.value, timeLimit: document.getElementById('time-limit-val').value,
             downtime: downtimeInput.value, isShared: viewToggle.checked, soundMode: soundModeSelect.value
         }));
@@ -731,16 +729,16 @@
         document.getElementById("start-overlay").style.display = "none";
         
         // --- 4x4 ArUco OVERRIDE JS-ARUCO ---
-        // js-arucoの認識エンジンを4x4（6x6グリッド）専用に書き換えます
         if (typeof AR !== 'undefined') {
             AR.Detector.prototype.detect = function(image){
                 CV.grayscale(image, this.grey);
                 CV.adaptiveThreshold(this.grey, this.thres, 2, 7);
                 this.contours = CV.findContours(this.thres, this.binary);
-                this.candidates = this.findCandidates(this.contours, image.width * 0.20, 0.05, 10);
+                // 変更点: 認識最小サイズを画面の20%から5%に引き下げ、小さなマーカーも認識可能に
+                this.candidates = this.findCandidates(this.contours, image.width * 0.05, 0.05, 10);
                 this.candidates = this.clockwiseCorners(this.candidates);
                 this.candidates = this.notTooNear(this.candidates, 10);
-                return this.findMarkers(this.grey, this.candidates, 48); // 48px(8px/cell) = 6x6 grid
+                return this.findMarkers(this.grey, this.candidates, 48); // 4x4 data + border = 6x6 (48px)
             };
 
             AR.Detector.prototype.findMarkers = function(imageSrc, candidates, warpSize){
@@ -755,6 +753,9 @@
             AR.Detector.prototype.getMarker4x4 = function(imageSrc, candidate, warpSize){
                 var homography = CV.findHomography(candidate, [{x:0,y:0}, {x:warpSize,y:0}, {x:warpSize,y:warpSize}, {x:0,y:warpSize}]);
                 var warped = CV.warp(imageSrc, homography, warpSize);
+
+                // 変更点: 大津の2値化(Otsu Threshold)を追加し、環境光(暗い/明るい)に強固に対応
+                CV.threshold(warped, warped, CV.otsu(warped));
 
                 var cellSize = warpSize / 6;
                 var bits = [];
@@ -771,23 +772,22 @@
                     }
                 }
 
-                // 1. 周辺1pxの枠が黒(0)か確認
+                // マーカーの黒枠のチェック
                 for (var i = 0; i < 6; ++i){
                     if (bits[0][i] !== 0 || bits[5][i] !== 0 || bits[i][0] !== 0 || bits[i][5] !== 0){ return null; }
                 }
 
-                // 2. 内部4x4のデータを抽出
                 var inner = [];
                 for (var y = 0; y < 4; ++y){
                     inner[y] = [];
                     for (var x = 0; x < 4; ++x){ inner[y][x] = bits[y+1][x+1]; }
                 }
 
-                // 3. 全4方向の回転の中から最小の16bit数値を固有IDとして採用する
                 var minId = 0xFFFF;
                 var bestRotation = 0;
                 var currentInner = inner;
 
+                // 4方向から一意の16ビットIDを算出
                 for (var r = 0; r < 4; ++r) {
                     var currentId = 0;
                     for (var y = 0; y < 4; ++y) {
@@ -821,15 +821,32 @@
             canvas.width = 640; canvas.height = 480;
             ctx.drawImage(video, 0, 0, 640, 480);
 
-            // 1. 4x4 ArUco Detection & Drawing
             let detectedArucoIds = [];
             if (arucoDetector) {
                 try {
                     const fullImageData = ctx.getImageData(0, 0, 640, 480);
                     const markers = arucoDetector.detect(fullImageData);
+
+                    // 【追加機能】学習モード中、カメラが「候補(四角形)」と認識しているものを白点線で表示
+                    // （カメラがピントを合わせられているかどうかの確認用）
+                    if (learningArucoLane && arucoDetector.candidates) {
+                        arucoDetector.candidates.forEach(cand => {
+                            ctx.lineWidth = 1;
+                            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+                            ctx.setLineDash([2, 2]);
+                            ctx.beginPath();
+                            ctx.moveTo(cand[0].x, cand[0].y);
+                            ctx.lineTo(cand[1].x, cand[1].y);
+                            ctx.lineTo(cand[2].x, cand[2].y);
+                            ctx.lineTo(cand[3].x, cand[3].y);
+                            ctx.closePath();
+                            ctx.stroke();
+                            ctx.setLineDash([]);
+                        });
+                    }
                     
                     markers.forEach(marker => {
-                        // 【LEARNモード】学習待機中なら、最初に見えたマーカーを登録
+                        // 学習モード: 最初に認識したマーカーを登録する
                         if (learningArucoLane) {
                             const c = configs.find(cfg => cfg.id === learningArucoLane);
                             if (c) {
@@ -844,7 +861,7 @@
                             }
                         }
 
-                        // 通常の描画処理
+                        // 通常の認識描画
                         const matchedConfig = configs.find(c => c.active && c.detectMode === 'aruco' && c.arucoId === marker.id);
                         const drawColor = matchedConfig ? matchedConfig.hex : 'rgba(255,255,255,0.7)';
                         const textStr = matchedConfig ? `P${matchedConfig.current} (ID:${marker.id})` : `ID:${marker.id}`;
